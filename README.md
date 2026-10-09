@@ -28,12 +28,11 @@ python -m radmuenster
 
 Lädt alle Monatsdateien nach `data/raw/` (wird gecacht) und schreibt die Tagessummen nach
 `data/processed/daily_100034983.parquet`. Die Spalte `complete` markiert Tage, die vollständig
-und ohne Störungsstatus sind.
+und ohne Störungsstatus sind und an denen beide Fahrtrichtungen gezählt haben.
 
 ## Fahrplan
 
-1. [x] Daten laden und zu Tageswerten aggregieren
-2. [ ] Explorative Analyse im Notebook (Wochenmuster, Saison, Ferien, Ausreißer)
-3. [ ] Features: Wetter (Open-Meteo), Wochentag, Feiertage NRW, Semesterzeiten, Lags
-4. [ ] Modelle: naive Baseline, lineare Regression, LightGBM mit zeitlicher Kreuzvalidierung
-5. [ ] Streamlit-App mit der Prognose für morgen
+1. [ ] Daten laden, zu Tageswerten aggregieren und explorativ analysieren (Notebook: Wochenmuster, Saison, Ferien, Ausreißer)
+2. [ ] Features: Wetter (Open-Meteo), Wochentag, Feiertage NRW, Semesterzeiten, Lags
+3. [ ] Modelle: naive Baseline, lineare Regression, LightGBM mit zeitlicher Kreuzvalidierung
+4. [ ] Streamlit-App mit der Prognose für morgen

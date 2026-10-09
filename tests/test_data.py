@@ -21,13 +21,23 @@ HEADER = (
 )
 
 
-def make_csv(day: str, counts: list[int], status: int | str = 0) -> str:
-    """Build a monthly CSV in the City of Münster format for a single day."""
+def make_csv(
+    day: str, counts: list[int], status: int | str = 0, dead_inbound: str | None = None
+) -> str:
+    """Build a monthly CSV in the City of Münster format for a single day.
+
+    Each count is split evenly into both directions. With dead_inbound set, the
+    inbound cell contains that value instead (e.g. "0" or "" for an empty cell)
+    and the outbound channel gets the whole count.
+    """
     times = pd.date_range(day, periods=len(counts), freq="15min")
-    rows = [
-        f"{t:%Y-%m-%d %H:%M},{c},{c // 2},{c - c // 2},{status},{status},{status}"
-        for t, c in zip(times, counts)
-    ]
+    rows = []
+    for t, c in zip(times, counts):
+        if dead_inbound is None:
+            c_in, c_out = str(c // 2), c - c // 2
+        else:
+            c_in, c_out = dead_inbound, c
+        rows.append(f"{t:%Y-%m-%d %H:%M},{c},{c_in},{c_out},{status},{status},{status}")
     return HEADER + "\n".join(rows) + "\n"
 
 
@@ -40,33 +50,44 @@ def test_month_range_spans_year_boundary():
     ]
 
 
-def test_parse_keeps_only_total_column():
+def test_parse_keeps_total_and_directions():
     df = parse_month_csv(make_csv("2024-06-01", [10, 20]), SITE)
-    assert list(df.columns) == ["count", "status"]
+    assert list(df.columns) == ["count", "count_in", "count_out", "status"]
     assert df["count"].tolist() == [10, 20]
 
 
 def test_daily_sum_matches_intervals():
-    df = parse_month_csv(make_csv("2024-06-01", [1] * 96), SITE)
+    df = parse_month_csv(make_csv("2024-06-01", [2] * 96), SITE)
     daily = to_daily(df)
     assert len(daily) == 1
-    assert daily["count"].iloc[0] == 96
+    assert daily["count"].iloc[0] == 192
+    assert daily["count_in"].iloc[0] == 96
+    assert daily["count_out"].iloc[0] == 96
     assert bool(daily["complete"].iloc[0])
 
 
 def test_day_with_missing_intervals_is_incomplete():
-    df = parse_month_csv(make_csv("2024-06-01", [1] * 50), SITE)
+    df = parse_month_csv(make_csv("2024-06-01", [2] * 50), SITE)
     assert not bool(to_daily(df)["complete"].iloc[0])
 
 
 def test_day_with_status_flag_is_incomplete():
-    df = parse_month_csv(make_csv("2024-06-01", [1] * 96, status=1), SITE)
+    df = parse_month_csv(make_csv("2024-06-01", [2] * 96, status=1), SITE)
     assert not bool(to_daily(df)["complete"].iloc[0])
 
 
 def test_validated_status_counts_as_ok():
-    df = parse_month_csv(make_csv("2024-06-01", [1] * 96, status="validated"), SITE)
+    df = parse_month_csv(make_csv("2024-06-01", [2] * 96, status="validated"), SITE)
     assert bool(to_daily(df)["complete"].iloc[0])
+
+
+@pytest.mark.parametrize("dead_value", ["0", ""], ids=["zeros", "empty_cells"])
+def test_day_with_dead_direction_is_incomplete(dead_value):
+    df = parse_month_csv(make_csv("2023-11-01", [2] * 96, dead_inbound=dead_value), SITE)
+    daily = to_daily(df)
+    assert daily["count"].iloc[0] == 192
+    assert bool(daily["one_way_dead"].iloc[0])
+    assert not bool(daily["complete"].iloc[0])
 
 
 class FakeResponse:

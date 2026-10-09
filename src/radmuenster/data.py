@@ -33,18 +33,25 @@ def month_range(start: date, end: date) -> list[str]:
 
 
 def parse_month_csv(text: str, site: str) -> pd.DataFrame:
-    """Convert a monthly CSV into a DataFrame with columns count and status.
+    """Convert a monthly CSV into a DataFrame with columns count, count_in,
+    count_out and status.
 
     The CSV contains the site's total count (the column starting with the
     site ID), the individual directions and one status column per channel.
-    We keep only the total count and its status.
+    We keep the total count, both directions and the status of the total.
+    The directions reveal outages the status misses, e.g. autumn 2023, when
+    the inbound channel was empty for about 80 days with status 0.
     """
     df = pd.read_csv(StringIO(text), parse_dates=["Datetime"])
     total_col = next(c for c in df.columns if c.startswith(f"{site} ("))
+    in_col = next(c for c in df.columns if c.endswith("stadteinwärts)"))
+    out_col = next(c for c in df.columns if c.endswith("stadtauswärts)"))
     status_col = f"{site}-status"
     out = pd.DataFrame(
         {
             "count": pd.to_numeric(df[total_col], errors="coerce"),
+            "count_in": pd.to_numeric(df[in_col], errors="coerce"),
+            "count_out": pd.to_numeric(df[out_col], errors="coerce"),
             "status": df[status_col].astype(str),
         }
     )
@@ -92,21 +99,35 @@ def to_daily(intervals: pd.DataFrame) -> pd.DataFrame:
     """Aggregate 15-minute counts to daily totals.
 
     Columns:
-      count       total bicycle trips on that day
-      n_intervals number of quarter hours present
-      n_flagged   number of quarter hours with a fault status
-      complete    True if the day is complete and has no fault status
+      count         total bicycle trips on that day
+      count_in      trips into the city
+      count_out     trips out of the city
+      n_intervals   number of quarter hours present
+      n_flagged     number of quarter hours with a fault status
+      one_way_dead  True if one direction counted 0 or nothing all day while
+                    the other did not; on a busy road that means a dead channel
+      complete      True if the day is complete, has no fault status and
+                    both directions counted
     """
     grouped = intervals.groupby(intervals.index.normalize())
     daily = pd.DataFrame(
         {
             "count": grouped["count"].sum(min_count=1),
+            "count_in": grouped["count_in"].sum(min_count=1),
+            "count_out": grouped["count_out"].sum(min_count=1),
             "n_intervals": grouped["count"].count(),
             "n_flagged": grouped["status"].apply(lambda s: int((~s.isin(OK_STATUS)).sum())),
         }
     )
     daily.index.name = "date"
-    daily["complete"] = (daily["n_intervals"] >= MIN_INTERVALS_PER_DAY) & (
-        daily["n_flagged"] == 0
+    # A dead channel shows up either as zeros or as empty cells (NaN after
+    # parsing, e.g. autumn 2023), so treat NaN like 0 here.
+    in_dead = daily["count_in"].fillna(0) == 0
+    out_dead = daily["count_out"].fillna(0) == 0
+    daily["one_way_dead"] = (in_dead & ~out_dead) | (out_dead & ~in_dead)
+    daily["complete"] = (
+        (daily["n_intervals"] >= MIN_INTERVALS_PER_DAY)
+        & (daily["n_flagged"] == 0)
+        & ~daily["one_way_dead"]
     )
     return daily

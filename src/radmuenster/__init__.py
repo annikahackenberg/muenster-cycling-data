@@ -1,1 +1,1 @@
-"""Analyse und Prognose des Radverkehrs in Münster."""
+"""Analysis and forecasting of bicycle traffic in Münster."""

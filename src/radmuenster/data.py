@@ -1,7 +1,7 @@
-"""Laden der Münsteraner Radzähldaten und Aggregation zu Tageswerten.
+"""Load Münster's bicycle counter data and aggregate it to daily counts.
 
-Quelle: https://github.com/od-ms/radverkehr-zaehlstellen
-Lizenz: Datenlizenz Deutschland Namensnennung 2.0 (Stadt Münster)
+Source: https://github.com/od-ms/radverkehr-zaehlstellen
+License: Datenlizenz Deutschland Namensnennung 2.0 (City of Münster)
 """
 
 from __future__ import annotations
@@ -15,29 +15,29 @@ import requests
 
 RAW_URL = "https://raw.githubusercontent.com/od-ms/radverkehr-zaehlstellen/main/{site}/{month}.csv"
 
-# Warendorfer Straße: Daten seit Januar 2019
+# Warendorfer Straße: data since January 2019
 DEFAULT_SITE = "100034983"
 
-# 96 Viertelstunden pro Tag; am Tag der Umstellung auf Sommerzeit sind es 92.
+# 96 quarter hours per day; on the day daylight saving time starts there are 92.
 MIN_INTERVALS_PER_DAY = 92
 
-# Statuswerte, die keine Störung bedeuten. In den Daten kommen außerdem "4"
-# (z. B. Herbst 2019, Januar 2024) vor, das werten wir als Störung.
+# Status values that do not indicate a fault. The data also contains "4"
+# (e.g. autumn 2019, January 2024), which we treat as a fault.
 OK_STATUS = {"0", "validated"}
 
 
 def month_range(start: date, end: date) -> list[str]:
-    """Alle Monate von start bis end (inklusive) im Format 'YYYY-MM'."""
+    """All months from start to end (inclusive) as 'YYYY-MM'."""
     months = pd.period_range(start=start, end=end, freq="M")
     return [str(p) for p in months]
 
 
 def parse_month_csv(text: str, site: str) -> pd.DataFrame:
-    """Eine Monats-CSV in ein DataFrame mit Spalten count und status umwandeln.
+    """Convert a monthly CSV into a DataFrame with columns count and status.
 
-    Die CSV enthält die Gesamtzählung der Zählstelle (Spalte, die mit der
-    Zählstellen-ID beginnt), Einzelrichtungen und je Kanal eine Statusspalte.
-    Wir behalten nur die Gesamtzählung und ihren Status.
+    The CSV contains the site's total count (the column starting with the
+    site ID), the individual directions and one status column per channel.
+    We keep only the total count and its status.
     """
     df = pd.read_csv(StringIO(text), parse_dates=["Datetime"])
     total_col = next(c for c in df.columns if c.startswith(f"{site} ("))
@@ -53,7 +53,7 @@ def parse_month_csv(text: str, site: str) -> pd.DataFrame:
 
 
 def download_month(site: str, month: str, cache_dir: Path) -> str | None:
-    """Monats-CSV holen und lokal zwischenspeichern. None, wenn es sie nicht gibt."""
+    """Fetch a monthly CSV and cache it locally. None if it does not exist."""
     cache_file = cache_dir / site / f"{month}.csv"
     if cache_file.exists():
         return cache_file.read_text(encoding="utf-8")
@@ -64,7 +64,7 @@ def download_month(site: str, month: str, cache_dir: Path) -> str | None:
     resp.raise_for_status()
 
     cache_file.parent.mkdir(parents=True, exist_ok=True)
-    # Der laufende Monat ändert sich noch täglich, also nicht cachen.
+    # The current month still changes daily, so do not cache it.
     if month != pd.Timestamp.today().strftime("%Y-%m"):
         cache_file.write_text(resp.text, encoding="utf-8")
     return resp.text
@@ -76,7 +76,7 @@ def load_intervals(
     end: date | None = None,
     cache_dir: Path = Path("data/raw"),
 ) -> pd.DataFrame:
-    """Alle 15-Minuten-Werte einer Zählstelle im Zeitraum laden."""
+    """Load all 15-minute counts of a site for the given period."""
     end = end or date.today()
     frames = []
     for month in month_range(start, end):
@@ -84,18 +84,18 @@ def load_intervals(
         if text is not None:
             frames.append(parse_month_csv(text, site))
     if not frames:
-        raise ValueError(f"Keine Daten für Zählstelle {site} gefunden")
+        raise ValueError(f"No data found for site {site}")
     return pd.concat(frames).sort_index()
 
 
 def to_daily(intervals: pd.DataFrame) -> pd.DataFrame:
-    """15-Minuten-Werte zu Tagessummen aggregieren.
+    """Aggregate 15-minute counts to daily totals.
 
-    Spalten:
-      count       Summe der Radfahrten am Tag
-      n_intervals Anzahl vorhandener Viertelstunden
-      n_flagged   Anzahl Viertelstunden mit Störungsstatus
-      complete    True, wenn der Tag vollständig und ohne Störungsmeldung ist
+    Columns:
+      count       total bicycle trips on that day
+      n_intervals number of quarter hours present
+      n_flagged   number of quarter hours with a fault status
+      complete    True if the day is complete and has no fault status
     """
     grouped = intervals.groupby(intervals.index.normalize())
     daily = pd.DataFrame(

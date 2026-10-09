@@ -1,7 +1,7 @@
 [project]
 name = "radmuenster"
 version = "0.1.0"
-description = "Analyse und Prognose des Radverkehrs in Münster mit offenen Zähldaten"
+description = "Analysis and forecasting of bicycle traffic in Münster using open counter data"
 requires-python = ">=3.11"
 dependencies = [
     "pandas>=2.2",

@@ -1,4 +1,4 @@
-"""Tageswerte erzeugen: python -m radmuenster"""
+"""Build daily counts: python -m radmuenster"""
 
 from pathlib import Path
 
@@ -12,9 +12,9 @@ def main() -> None:
     daily.to_parquet(out)
 
     n_bad = int((~daily["complete"]).sum())
-    print(f"{len(daily)} Tage gespeichert in {out}")
-    print(f"Zeitraum: {daily.index.min():%Y-%m-%d} bis {daily.index.max():%Y-%m-%d}")
-    print(f"Unvollständige oder gestörte Tage: {n_bad}")
+    print(f"Saved {len(daily)} days to {out}")
+    print(f"Period: {daily.index.min():%Y-%m-%d} to {daily.index.max():%Y-%m-%d}")
+    print(f"Incomplete or flagged days: {n_bad}")
 
 
 if __name__ == "__main__":

@@ -2,14 +2,14 @@
 
 Exploring Münster's bicycle traffic with open data – analysis, forecasting and an AI assistant.
 
-Erstes Projekt: **Tagesprognose der Radfahrten an der Zählstelle Warendorfer Straße** (Daten seit Januar 2019).
+First project: **daily forecast of bicycle trips at the Warendorfer Straße counting site** (data since January 2019).
 
-## Daten
+## Data
 
-Quelle: [od-ms/radverkehr-zaehlstellen](https://github.com/od-ms/radverkehr-zaehlstellen), Stadt Münster,
-Lizenz [Datenlizenz Deutschland Namensnennung 2.0](https://www.govdata.de/dl-de/by-2-0).
-Die Stadt veröffentlicht 15-Minuten-Zählungen pro Zählstelle als eine CSV-Datei je Monat. Es sind Rohdaten:
-Ausfälle und Baustellen sind nicht bereinigt.
+Source: [od-ms/radverkehr-zaehlstellen](https://github.com/od-ms/radverkehr-zaehlstellen), City of Münster,
+license [Datenlizenz Deutschland Namensnennung 2.0](https://www.govdata.de/dl-de/by-2-0).
+The city publishes 15-minute counts per counting site as one CSV file per month. This is raw data:
+outages and construction sites are not cleaned up.
 
 ## Setup
 
@@ -20,43 +20,43 @@ pip install -e ".[dev]"
 pytest
 ```
 
-## Tageswerte erzeugen
+## Build daily counts
 
 ```bash
 python -m radmuenster
 ```
 
-Lädt alle Monatsdateien nach `data/raw/` (wird gecacht) und schreibt die Tagessummen nach
-`data/processed/daily_100034983.parquet`. Die Spalte `complete` markiert Tage, die vollständig
-und ohne Störungsstatus sind und an denen beide Fahrtrichtungen plausibel gezählt haben.
+Downloads all monthly files to `data/raw/` (cached) and writes the daily totals to
+`data/processed/daily_100034983.parquet`. The column `complete` marks days that are complete,
+have no fault status and where both directions counted plausibly.
 
-## Erkenntnisse aus der explorativen Analyse
+## Findings from the exploratory analysis
 
-Details, Plots und Herleitung: [notebooks/01_explorative_analyse.ipynb](notebooks/01_explorative_analyse.ipynb)
-(Datenstand 09.10.2026).
+Details, plots and reasoning: [notebooks/01_exploratory_analysis.ipynb](notebooks/01_exploratory_analysis.ipynb)
+(data as of 9 October 2026).
 
-**Datenqualität**
-- Der Statuswert der Stadt reicht nicht, um Ausfälle zu erkennen. Stadteinwärts war zweimal rund
-  80 Tage lang leer (Herbst 2021 und Herbst 2023), dazu kommen mehrere Teilausfälle, alle mit Status „in Ordnung“.
-  Erkannt werden sie über den Anteil der beiden Fahrtrichtungen (`direction_fault`).
-- Von April 2021 bis Mai 2025 fehlt in den Daten der letzte Tag jedes Monats.
-- Der Anteil stadteinwärts springt zweimal dauerhaft, jeweils direkt nach einer Störung (Juni 2024, Oktober 2025).
-  Das deutet auf Wartung oder Änderungen an der Zählstelle hin. Werte vor und nach einem Sprung sind
-  nicht voll vergleichbar.
+**Data quality**
+- The city's status value is not enough to detect outages. The inbound channel was empty twice for about
+  80 days (autumn 2021 and autumn 2023), plus several partial outages, all with status "OK".
+  They are detected by the share of the two directions (`direction_fault`).
+- From April 2021 to May 2025 the last day of every month is missing from the data.
+- The inbound share jumps twice and stays on the new level, each time right after a disturbance (June 2024,
+  October 2025). This points to maintenance or changes at the counting site. Counts before and after a jump
+  are not fully comparable.
 
-**Muster**
-- **Wochentag** ist der stärkste Effekt: Sonntags fahren rund 40 % so viele wie an einem Werktag, mittwochs
-  und samstags (Markttage) am meisten.
-- **Saison** ist schwächer (Januar und Dezember etwa 13 % unter, Mai bis November etwa 3–8 % über dem
-  Jahresmittel), mit einer Delle im April (Ostern, vorlesungsfreie Zeit).
-- **Ausreißer** sind fast alle erklärbar: Feiertage, Weihnachten, Rosenmontag, Schnee im Februar 2021.
-  Der Rest sind vor allem Sonntage mit besonders gutem oder schlechtem Wetter.
-- **Autokorrelation** ist bei 7 Tagen am höchsten (0,70) und bei 364 Tagen hoch (0,58). Lag 1 steht für eine
-  Prognose für morgen nicht zur Verfügung (Leakage), nutzbar sind Lags ab 2 Tagen.
+**Patterns**
+- **Weekday** is the strongest effect: on Sundays about 40 % as many people cycle as on a workday;
+  Wednesdays and Saturdays (market days) are the busiest.
+- **Season** is weaker (January and December about 13 % below, May to November about 3–8 % above the
+  annual mean), with a dip in April (Easter, lecture-free period).
+- **Outliers** are almost all explained: public holidays, Christmas, Rosenmontag (carnival), snow in February 2021.
+  The rest are mostly Sundays with particularly good or bad weather.
+- **Autocorrelation** is highest at 7 days (0.70) and high at 364 days (0.58). Lag 1 is not available for a
+  forecast for tomorrow (leakage); usable lags start at 2 days.
 
-## Fahrplan
+## Roadmap
 
-1. [x] Daten laden, zu Tageswerten aggregieren und explorativ analysieren (Wochenmuster, Saison, Autokorrelation, Ausreißer, Datenqualität)
-2. [ ] Features: Wetter (Open-Meteo), Wochentag, Feiertage NRW, Semesterzeiten, Lags
-3. [ ] Modelle: naive Baseline, lineare Regression, LightGBM mit zeitlicher Kreuzvalidierung
-4. [ ] Streamlit-App mit der Prognose für morgen
+1. [x] Load data, aggregate to daily counts and explore (weekly pattern, season, autocorrelation, outliers, data quality)
+2. [ ] Features: weather (Open-Meteo), weekday, public holidays NRW, semester periods, lags
+3. [ ] Models: naive baseline, linear regression, LightGBM with time-based cross-validation
+4. [ ] Streamlit app with the forecast for tomorrow

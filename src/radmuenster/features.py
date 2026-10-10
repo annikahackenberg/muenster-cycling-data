@@ -30,6 +30,10 @@ MIN_LAG = 2
 # earlier (52 weeks); 2: most recent complete day
 LAGS = (2, 7, 14, 364)
 
+# Calendar columns of special days off, which are no reference for regular
+# days in the following weeks (see lag_features)
+SPECIAL_DAYS = ("is_holiday", "is_bridge_day", "is_christmas", "is_rosenmontag")
+
 # First day of each measurement period. The counting site changed twice right
 # after a disturbance (see notebook 01, inbound share):
 # - 12 June 2024, after the partial inbound outage of 3-11 June: inbound
@@ -99,9 +103,12 @@ def lag_features(daily: pd.DataFrame, dates: pd.DatetimeIndex) -> pd.DataFrame:
     """Past counts for each date, using only days at least MIN_LAG days earlier.
 
     daily is the output of to_daily. Days that are not complete count as
-    missing, so a lag never carries a value from an outage. dates may lie
-    beyond the end of daily (e.g. tomorrow); lags that reach into the
-    unknown future are NaN.
+    missing, so a lag never carries a value from an outage. Special days off
+    (public holidays, bridge days, Christmas, Rosenmontag) count as missing
+    too, except in lag_364: Easter Monday is no reference for the Monday one
+    week later, but last Christmas is a good reference for this Christmas.
+    dates may lie beyond the end of daily (e.g. tomorrow); lags that reach
+    into the unknown future are NaN.
 
     Columns:
       lag_<k>          count k days before the date, for k in LAGS
@@ -113,17 +120,19 @@ def lag_features(daily: pd.DataFrame, dates: pd.DatetimeIndex) -> pd.DataFrame:
     # not a row shift (the data has gaps)
     counts = daily["count"].where(daily["complete"])
     counts = counts.reindex(pd.date_range(counts.index.min(), counts.index.max(), freq="D"))
+    special = calendar_features(counts.index)[list(SPECIAL_DAYS)].any(axis=1)
+    regular = counts.where(~special)
 
     def days_before(series: pd.Series, k: int) -> np.ndarray:
         # Look up the value k days before each date; dates outside the
         # data range give NaN
         return series.reindex(dates - pd.Timedelta(days=k)).to_numpy()
 
-    columns = {f"lag_{k}": days_before(counts, k) for k in LAGS}
+    columns = {f"lag_{k}": days_before(regular if k < 364 else counts, k) for k in LAGS}
     # rolling(7) at day t covers t-6 ... t; looked up MIN_LAG days before the
     # date it covers date-8 ... date-2
-    columns["mean_7d"] = days_before(counts.rolling(7, min_periods=4).mean(), MIN_LAG)
-    same_weekday = np.column_stack([days_before(counts, 7 * w) for w in range(1, 5)])
+    columns["mean_7d"] = days_before(regular.rolling(7, min_periods=4).mean(), MIN_LAG)
+    same_weekday = np.column_stack([days_before(regular, 7 * w) for w in range(1, 5)])
     # Mean over the weeks that have a value; all four missing gives NaN
     columns["same_weekday_4w"] = pd.DataFrame(same_weekday).mean(axis=1).to_numpy()
 

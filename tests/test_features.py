@@ -87,9 +87,10 @@ def make_daily(start: str, counts: list[float], incomplete: tuple[str, ...] = ()
 
 
 def test_lags_look_back_the_right_number_of_days():
-    # Count = day number, so a lag of k days must give (day - k)
-    daily = make_daily("2024-01-01", list(range(400)))
-    day = pd.Timestamp("2024-01-01") + pd.Timedelta(days=380)
+    # Count = day number, so a lag of k days must give (day - k). The date
+    # (15 February 2025) is chosen so that no lag falls on a public holiday.
+    daily = make_daily("2024-02-01", list(range(400)))
+    day = pd.Timestamp("2024-02-01") + pd.Timedelta(days=380)
     row = lag_features(daily, pd.DatetimeIndex([day])).iloc[0]
     assert row["lag_2"] == 378
     assert row["lag_7"] == 373
@@ -218,3 +219,18 @@ def test_training_table_has_only_complete_days_and_the_target():
     assert len(table) == 29
     assert pd.Timestamp("2024-01-10") not in table.index
     assert (table["count"] == 100).all()
+
+
+def test_lags_skip_special_days_off_except_lag_364():
+    # Easter Monday 2025 (21 April) is a public holiday with few trips
+    daily = make_daily("2024-01-01", [1000.0] * 500)
+    daily.loc["2025-04-21", "count"] = 300
+    daily.loc["2024-04-22", "count"] = 400  # 364 days before 21 April 2025
+    row = lag_features(daily, pd.DatetimeIndex(["2025-04-28"])).iloc[0]
+    # The Monday after: lag_7 would be Easter Monday, so it is missing ...
+    assert np.isnan(row["lag_7"])
+    # ... and the weekday mean uses the three regular Mondays before
+    assert row["same_weekday_4w"] == 1000
+    # lag_364 keeps special days: last year's holiday is a reference for this one
+    holiday = lag_features(daily, pd.DatetimeIndex(["2025-04-21"])).iloc[0]
+    assert holiday["lag_364"] == 400

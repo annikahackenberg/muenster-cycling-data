@@ -80,9 +80,26 @@ Lags start at 2 days: a forecast for tomorrow is made while today is still runni
 The lecture and school holiday dates are maintained by hand in `calendars.py`; the features refuse
 dates beyond the known calendar instead of silently treating them as normal days.
 
+## Models
+
+Time-based cross-validation: each quarter from 2023 on is a test period, the model is trained on all days
+before it (`radmuenster.evaluation`). Results over 1,232 test days
+(details: [notebooks/02_models.ipynb](notebooks/02_models.ipynb)):
+
+| Model | MAE (trips) | WAPE | MAPE | NRMSE |
+|---|---|---|---|---|
+| Naive baseline (same weekday last week) | 960 | 16.1 % | 24.0 % | 23.3 % |
+| Holiday baseline (naive × factor per kind of special day) | 848 | 14.3 % | 17.7 % | 18.9 % |
+| Linear regression on log(count) | 646 | 10.9 % | 12.1 % | 14.4 % |
+| **LightGBM on log(count)** | **529** | **8.9 %** | **10.2 %** | **12.0 %** |
+
+WAPE is the sum of errors divided by the sum of actual counts; MAPE is dominated by quiet days (snow),
+NRMSE by a few large errors. The cross-validation uses the measured weather of the forecast day, so the
+error of the app, which only has a weather forecast, will be higher.
+
 ## Roadmap
 
 1. [x] Load data, aggregate to daily counts and explore (weekly pattern, season, autocorrelation, outliers, data quality)
 2. [x] Features: weather (Open-Meteo), weekday, public holidays NRW, semester periods, school holidays, lags, measurement period
-3. [ ] Models: naive baseline, linear regression, LightGBM with time-based cross-validation
+3. [x] Models: naive and holiday baseline, linear regression, LightGBM with time-based cross-validation
 4. [ ] Streamlit app with the forecast for tomorrow, plus monitoring: warn when the direction share or the forecast error drifts (sign of a new measurement jump)

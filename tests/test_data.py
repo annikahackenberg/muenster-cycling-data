@@ -81,13 +81,30 @@ def test_validated_status_counts_as_ok():
     assert bool(to_daily(df)["complete"].iloc[0])
 
 
-@pytest.mark.parametrize("dead_value", ["0", ""], ids=["zeros", "empty_cells"])
+@pytest.mark.parametrize("dead_value", ["0", "", "1"], ids=["zeros", "empty_cells", "almost_dead"])
 def test_day_with_dead_direction_is_incomplete(dead_value):
-    df = parse_month_csv(make_csv("2023-11-01", [2] * 96, dead_inbound=dead_value), SITE)
+    # 40 trips per quarter hour = 3840 per day, well above MIN_COUNT_FOR_SHARE_CHECK
+    df = parse_month_csv(make_csv("2023-11-01", [40] * 96, dead_inbound=dead_value), SITE)
     daily = to_daily(df)
-    assert daily["count"].iloc[0] == 192
-    assert bool(daily["one_way_dead"].iloc[0])
+    assert daily["count"].iloc[0] == 3840
+    assert bool(daily["direction_fault"].iloc[0])
     assert not bool(daily["complete"].iloc[0])
+
+
+def test_quiet_day_with_uneven_directions_stays_complete():
+    # Per quarter hour 1 inbound and 4 outbound: 480 trips per day with a 20 %
+    # inbound share, but too few trips to judge the share
+    df = parse_month_csv(make_csv("2021-02-08", [4] * 96, dead_inbound="1"), SITE)
+    daily = to_daily(df)
+    assert not bool(daily["direction_fault"].iloc[0])
+    assert bool(daily["complete"].iloc[0])
+
+
+def test_quiet_day_with_dead_direction_is_incomplete():
+    # Few trips, but a direction with nothing at all is still a fault
+    # (e.g. Christmas 2023 during the inbound outage)
+    df = parse_month_csv(make_csv("2023-12-25", [2] * 96, dead_inbound=""), SITE)
+    assert bool(to_daily(df)["direction_fault"].iloc[0])
 
 
 class FakeResponse:

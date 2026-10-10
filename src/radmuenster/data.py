@@ -10,6 +10,7 @@ from datetime import date
 from io import StringIO
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import requests
 
@@ -24,6 +25,14 @@ MIN_INTERVALS_PER_DAY = 92
 # Status values that do not indicate a fault. The data also contains "4"
 # (e.g. autumn 2019, January 2024), which we treat as a fault.
 OK_STATUS = {"0", "validated"}
+
+# Normally 47-64 % of the trips go into the city. A direction with less than
+# 25 % of the day's trips points to a (partly) dead channel, even with status 0.
+MIN_DIRECTION_SHARE = 0.25
+
+# On very quiet days (e.g. snow in February 2021 with 63 trips) the share
+# varies by chance, so the share check only applies above this many trips.
+MIN_COUNT_FOR_SHARE_CHECK = 500
 
 
 def month_range(start: date, end: date) -> list[str]:
@@ -104,10 +113,13 @@ def to_daily(intervals: pd.DataFrame) -> pd.DataFrame:
       count_out     trips out of the city
       n_intervals   number of quarter hours present
       n_flagged     number of quarter hours with a fault status
-      one_way_dead  True if one direction counted 0 or nothing all day while
-                    the other did not; on a busy road that means a dead channel
-      complete      True if the day is complete, has no fault status and
-                    both directions counted
+      direction_fault  True if one direction counted nothing all day while the
+                       other did, or if one direction has less than
+                       MIN_DIRECTION_SHARE of the day's trips (only on days with
+                       at least MIN_COUNT_FOR_SHARE_CHECK trips); both mean a
+                       (partly) dead channel
+      complete         True if the day is complete, has no fault status and
+                       no direction fault
     """
     grouped = intervals.groupby(intervals.index.normalize())
     daily = pd.DataFrame(
@@ -122,12 +134,18 @@ def to_daily(intervals: pd.DataFrame) -> pd.DataFrame:
     daily.index.name = "date"
     # A dead channel shows up either as zeros or as empty cells (NaN after
     # parsing, e.g. autumn 2023), so treat NaN like 0 here.
-    in_dead = daily["count_in"].fillna(0) == 0
-    out_dead = daily["count_out"].fillna(0) == 0
-    daily["one_way_dead"] = (in_dead & ~out_dead) | (out_dead & ~in_dead)
+    count_in = daily["count_in"].fillna(0)
+    count_out = daily["count_out"].fillna(0)
+    both = count_in + count_out
+    weaker = np.minimum(count_in, count_out)
+    # A whole day without a single trip in one direction is implausible even on
+    # the quietest day (snow, February 2021: 42 trips, both directions > 0)
+    one_dead = (weaker == 0) & (both > 0)
+    one_weak = (both >= MIN_COUNT_FOR_SHARE_CHECK) & (weaker / both < MIN_DIRECTION_SHARE)
+    daily["direction_fault"] = one_dead | one_weak
     daily["complete"] = (
         (daily["n_intervals"] >= MIN_INTERVALS_PER_DAY)
         & (daily["n_flagged"] == 0)
-        & ~daily["one_way_dead"]
+        & ~daily["direction_fault"]
     )
     return daily

@@ -1,0 +1,151 @@
+"""Load Münster's bicycle counter data and aggregate it to daily counts.
+
+Source: https://github.com/od-ms/radverkehr-zaehlstellen
+License: Datenlizenz Deutschland Namensnennung 2.0 (City of Münster)
+"""
+
+from __future__ import annotations
+
+from datetime import date
+from io import StringIO
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import requests
+
+RAW_URL = "https://raw.githubusercontent.com/od-ms/radverkehr-zaehlstellen/main/{site}/{month}.csv"
+
+# Warendorfer Straße: data since January 2019
+DEFAULT_SITE = "100034983"
+
+# 96 quarter hours per day; on the day daylight saving time starts there are 92.
+MIN_INTERVALS_PER_DAY = 92
+
+# Status values that do not indicate a fault. The data also contains "4"
+# (e.g. autumn 2019, January 2024), which we treat as a fault.
+OK_STATUS = {"0", "validated"}
+
+# Normally 47-64 % of the trips go into the city. A direction with less than
+# 25 % of the day's trips points to a (partly) dead channel, even with status 0.
+MIN_DIRECTION_SHARE = 0.25
+
+# On very quiet days (e.g. snow in February 2021 with 63 trips) the share
+# varies by chance, so the share check only applies above this many trips.
+MIN_COUNT_FOR_SHARE_CHECK = 500
+
+
+def month_range(start: date, end: date) -> list[str]:
+    """All months from start to end (inclusive) as 'YYYY-MM'."""
+    months = pd.period_range(start=start, end=end, freq="M")
+    return [str(p) for p in months]
+
+
+def parse_month_csv(text: str, site: str) -> pd.DataFrame:
+    """Convert a monthly CSV into a DataFrame with columns count, count_in,
+    count_out and status.
+
+    The CSV contains the site's total count (the column starting with the
+    site ID), the individual directions and one status column per channel.
+    We keep the total count, both directions and the status of the total.
+    The directions reveal outages the status misses, e.g. autumn 2023, when
+    the inbound channel was empty for about 80 days with status 0.
+    """
+    df = pd.read_csv(StringIO(text), parse_dates=["Datetime"])
+    total_col = next(c for c in df.columns if c.startswith(f"{site} ("))
+    in_col = next(c for c in df.columns if c.endswith("stadteinwärts)"))
+    out_col = next(c for c in df.columns if c.endswith("stadtauswärts)"))
+    status_col = f"{site}-status"
+    out = pd.DataFrame(
+        {
+            "count": pd.to_numeric(df[total_col], errors="coerce"),
+            "count_in": pd.to_numeric(df[in_col], errors="coerce"),
+            "count_out": pd.to_numeric(df[out_col], errors="coerce"),
+            "status": df[status_col].astype(str),
+        }
+    )
+    out.index = pd.DatetimeIndex(df["Datetime"], name="datetime")
+    return out
+
+
+def download_month(site: str, month: str, cache_dir: Path) -> str | None:
+    """Fetch a monthly CSV and cache it locally. None if it does not exist."""
+    cache_file = cache_dir / site / f"{month}.csv"
+    if cache_file.exists():
+        return cache_file.read_text(encoding="utf-8")
+
+    resp = requests.get(RAW_URL.format(site=site, month=month), timeout=30)
+    if resp.status_code == 404:
+        return None
+    resp.raise_for_status()
+
+    cache_file.parent.mkdir(parents=True, exist_ok=True)
+    # The current month still changes daily, so do not cache it.
+    if month != pd.Timestamp.today().strftime("%Y-%m"):
+        cache_file.write_text(resp.text, encoding="utf-8")
+    return resp.text
+
+
+def load_intervals(
+    site: str = DEFAULT_SITE,
+    start: date = date(2019, 1, 1),
+    end: date | None = None,
+    cache_dir: Path = Path("data/raw"),
+) -> pd.DataFrame:
+    """Load all 15-minute counts of a site for the given period."""
+    end = end or date.today()
+    frames = []
+    for month in month_range(start, end):
+        text = download_month(site, month, cache_dir)
+        if text is not None:
+            frames.append(parse_month_csv(text, site))
+    if not frames:
+        raise ValueError(f"No data found for site {site}")
+    return pd.concat(frames).sort_index()
+
+
+def to_daily(intervals: pd.DataFrame) -> pd.DataFrame:
+    """Aggregate 15-minute counts to daily totals.
+
+    Columns:
+      count         total bicycle trips on that day
+      count_in      trips into the city
+      count_out     trips out of the city
+      n_intervals   number of quarter hours present
+      n_flagged     number of quarter hours with a fault status
+      direction_fault  True if one direction counted nothing all day while the
+                       other did, or if one direction has less than
+                       MIN_DIRECTION_SHARE of the day's trips (only on days with
+                       at least MIN_COUNT_FOR_SHARE_CHECK trips); both mean a
+                       (partly) dead channel
+      complete         True if the day is complete, has no fault status and
+                       no direction fault
+    """
+    grouped = intervals.groupby(intervals.index.normalize())
+    daily = pd.DataFrame(
+        {
+            "count": grouped["count"].sum(min_count=1),
+            "count_in": grouped["count_in"].sum(min_count=1),
+            "count_out": grouped["count_out"].sum(min_count=1),
+            "n_intervals": grouped["count"].count(),
+            "n_flagged": grouped["status"].apply(lambda s: int((~s.isin(OK_STATUS)).sum())),
+        }
+    )
+    daily.index.name = "date"
+    # A dead channel shows up either as zeros or as empty cells (NaN after
+    # parsing, e.g. autumn 2023), so treat NaN like 0 here.
+    count_in = daily["count_in"].fillna(0)
+    count_out = daily["count_out"].fillna(0)
+    both = count_in + count_out
+    weaker = np.minimum(count_in, count_out)
+    # A whole day without a single trip in one direction is implausible even on
+    # the quietest day (snow, February 2021: 42 trips, both directions > 0)
+    one_dead = (weaker == 0) & (both > 0)
+    one_weak = (both >= MIN_COUNT_FOR_SHARE_CHECK) & (weaker / both < MIN_DIRECTION_SHARE)
+    daily["direction_fault"] = one_dead | one_weak
+    daily["complete"] = (
+        (daily["n_intervals"] >= MIN_INTERVALS_PER_DAY)
+        & (daily["n_flagged"] == 0)
+        & ~daily["direction_fault"]
+    )
+    return daily

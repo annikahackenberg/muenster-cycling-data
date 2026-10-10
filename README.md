@@ -102,4 +102,8 @@ error of the app, which only has a weather forecast, will be higher.
 1. [x] Load data, aggregate to daily counts and explore (weekly pattern, season, autocorrelation, outliers, data quality)
 2. [x] Features: weather (Open-Meteo), weekday, public holidays NRW, semester periods, school holidays, lags, measurement period
 3. [x] Models: naive and holiday baseline, linear regression, LightGBM with time-based cross-validation
-4. [ ] Streamlit app with the forecast for tomorrow, plus monitoring: warn when the direction share or the forecast error drifts (sign of a new measurement jump)
+4. [ ] Daily forecast: a scheduled GitHub Actions job computes tomorrow's forecast and the monitoring
+   (warn when the direction share or the forecast error drifts, a sign of a new measurement jump);
+   a Streamlit page shows the forecast and the recent weeks
+5. [ ] AI assistant: ask questions about the data in natural language (an LLM with tools that query the
+   counts, weather and forecasts)

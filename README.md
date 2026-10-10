@@ -11,6 +11,9 @@ license [Datenlizenz Deutschland Namensnennung 2.0](https://www.govdata.de/dl-de
 The city publishes 15-minute counts per counting site as one CSV file per month. This is raw data:
 outages and construction sites are not cleaned up.
 
+Weather: [Open-Meteo](https://open-meteo.com) historical weather API (ERA5 reanalysis),
+license [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+
 ## Setup
 
 ```bash
@@ -40,9 +43,14 @@ Details, plots and reasoning: [notebooks/01_exploratory_analysis.ipynb](notebook
   80 days (autumn 2021 and autumn 2023), plus several partial outages, all with status "OK".
   They are detected by the share of the two directions (`direction_fault`).
 - From April 2021 to May 2025 the last day of every month is missing from the data.
-- The inbound share jumps twice and stays on the new level, each time right after a disturbance (June 2024,
-  October 2025). This points to maintenance or changes at the counting site. Counts before and after a jump
-  are not fully comparable.
+- The inbound share jumps twice and stays on the new level, each time right after a disturbance. This points
+  to maintenance or changes at the counting site:
+  - June 2024: the inbound channel counts about 14 % less than before, so part of the lower level since then
+    is probably a measurement artefact.
+  - End of October 2025: the outbound channel counts about 60 % more than before, so counts since then are
+    probably too high.
+
+  Counts from different periods are not fully comparable.
 
 **Patterns**
 - **Weekday** is the strongest effect: on Sundays about 40 % as many people cycle as on a workday;
@@ -54,9 +62,27 @@ Details, plots and reasoning: [notebooks/01_exploratory_analysis.ipynb](notebook
 - **Autocorrelation** is highest at 7 days (0.70) and high at 364 days (0.58). Lag 1 is not available for a
   forecast for tomorrow (leakage); usable lags start at 2 days.
 
+## Features
+
+`radmuenster.features.build_features(daily, weather, dates)` builds one row per date, for past dates
+(training) and for tomorrow (forecast) alike; `training_table(daily, weather)` adds the target `count`
+for all complete days.
+
+| Group | Columns | Source |
+|---|---|---|
+| Calendar | weekday, month, season (sin/cos), public holiday, bridge day, Christmas, Rosenmontag | `holidays` |
+| Academic | lecture period of the University of Münster, school holidays NRW | `radmuenster/calendars.py` |
+| Measurement period | 0 / 1 from 12 June 2024 / 2 from 28 October 2025 | exploratory analysis |
+| Lags | counts 2, 7, 14 and 364 days earlier, 7-day mean, same weekday over 4 weeks | daily counts |
+| Weather | temperature, precipitation, sunshine, wind, snowfall, snow of the last 5 days | Open-Meteo |
+
+Lags start at 2 days: a forecast for tomorrow is made while today is still running (no leakage).
+The lecture and school holiday dates are maintained by hand in `calendars.py`; the features refuse
+dates beyond the known calendar instead of silently treating them as normal days.
+
 ## Roadmap
 
 1. [x] Load data, aggregate to daily counts and explore (weekly pattern, season, autocorrelation, outliers, data quality)
-2. [ ] Features: weather (Open-Meteo), weekday, public holidays NRW, semester periods, lags
+2. [x] Features: weather (Open-Meteo), weekday, public holidays NRW, semester periods, school holidays, lags, measurement period
 3. [ ] Models: naive baseline, linear regression, LightGBM with time-based cross-validation
-4. [ ] Streamlit app with the forecast for tomorrow
+4. [ ] Streamlit app with the forecast for tomorrow, plus monitoring: warn when the direction share or the forecast error drifts (sign of a new measurement jump)

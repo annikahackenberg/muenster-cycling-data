@@ -8,10 +8,14 @@ on:
     - cron: "0 18 * * *"
   workflow_dispatch: # manual run from the Actions tab
 
-# Write access to commit the forecast to main and to open monitoring issues
+# Write access to commit the forecast to main, to open monitoring issues and
+# to publish the static page on GitHub Pages (id-token proves to Pages that
+# the upload comes from this workflow)
 permissions:
   contents: write
   issues: write
+  pages: write
+  id-token: write
 
 # Never run two forecasts at once, they would both commit
 concurrency:
@@ -20,6 +24,10 @@ concurrency:
 jobs:
   forecast:
     runs-on: ubuntu-latest
+    # The page URL shows up on the run's summary page
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v7
 
@@ -40,7 +48,7 @@ jobs:
           key: raw-data-${{ github.run_id }}
           restore-keys: raw-data-
 
-      - name: Forecast tomorrow and run the monitoring
+      - name: Forecast tomorrow, run the monitoring and build the page
         run: python -m radmuenster.forecast
 
       - name: Commit forecast to main
@@ -56,6 +64,14 @@ jobs:
           # main may have moved since the checkout (e.g. a merged pull request)
           git pull --rebase origin main
           git push origin HEAD:main
+
+      # The page is published from the folder site/ of this run, without a commit
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+
+      - id: deployment
+        uses: actions/deploy-pages@v5
 
       - name: Report monitoring warnings as an issue
         env:

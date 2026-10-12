@@ -10,17 +10,16 @@ from datetime import timedelta
 from urllib.error import URLError
 from urllib.request import urlopen
 
-import altair as alt
 import pandas as pd
 import streamlit as st
 
 from radmuenster.dashboard import (
-    COUNTED,
-    FORECAST,
     chart_data,
+    counts_chart,
     forecast_accuracy,
     is_stale,
     latest_forecast,
+    weather_summary,
 )
 from radmuenster.data import DEFAULT_SITE, load_intervals, to_daily
 from radmuenster.forecast import FORECAST_FILE, read_forecasts, today_in_muenster
@@ -32,11 +31,6 @@ REPO_URL = "https://github.com/annikahackenberg/muenster-cycling-data"
 RAW_URL = "https://raw.githubusercontent.com/annikahackenberg/muenster-cycling-data/main/"
 CHART_WEEKS = 8
 
-# Categorical slots 1 and 2 of the validated palette, per theme
-SERIES_COLORS = {
-    "light": {COUNTED: "#2a78d6", FORECAST: "#eb6834"},
-    "dark": {COUNTED: "#3987e5", FORECAST: "#d95926"},
-}
 # Streamlit's background, for the ring that separates markers from the line
 SURFACE = {"light": "#ffffff", "dark": "#0e1117"}
 
@@ -70,59 +64,6 @@ def load_recent_counts(start) -> pd.DataFrame:
     return to_daily(load_intervals(DEFAULT_SITE, start=start))
 
 
-def weather_summary(forecast: pd.Series) -> str:
-    return (
-        f"{forecast['temp_max']:.0f} °C max · {forecast['precipitation']:.1f} mm rain "
-        f"over {forecast['precipitation_hours']:.0f} h · {forecast['sunshine']:.0f} h sun · "
-        f"wind up to {forecast['wind_max']:.0f} km/h"
-    )
-
-
-def counts_chart(data: pd.DataFrame, theme: str) -> alt.LayerChart:
-    """Counted trips as a line, forecasts as dots, with a hover rule."""
-    colors = SERIES_COLORS[theme]
-    color = alt.Color(
-        "series:N",
-        scale=alt.Scale(domain=list(colors), range=list(colors.values())),
-        legend=alt.Legend(orient="top", title=None),
-    )
-    base = alt.Chart(data).encode(
-        x=alt.X("date:T", title=None, axis=alt.Axis(format="%d %b", grid=False)),
-        y=alt.Y("trips:Q", title="Trips per day", scale=alt.Scale(zero=True)),
-        color=color,
-    )
-    # invalid=None: a missing day breaks the line instead of being bridged
-    line = base.transform_filter(alt.datum.series == COUNTED).mark_line(
-        strokeWidth=2, invalid=None
-    )
-    dots = base.transform_filter(alt.datum.series == FORECAST).mark_point(
-        filled=True, size=90, opacity=1, stroke=SURFACE[theme], strokeWidth=2
-    )
-
-    # Hover: the date nearest to the pointer, with both values in the tooltip
-    wide = data.pivot_table(index="date", columns="series", values="trips").reset_index()
-    for series in (COUNTED, FORECAST):
-        # As text, so that a missing value shows as "–" instead of "null"
-        values = wide[series] if series in wide else pd.Series(float("nan"), index=wide.index)
-        wide[series] = values.map(lambda v: "–" if pd.isna(v) else f"{v:,.0f}")
-    hover = alt.selection_point(fields=["date"], nearest=True, on="pointerover", empty=False)
-    rule = (
-        alt.Chart(wide)
-        .mark_rule(color="gray", strokeWidth=1)
-        .encode(
-            x="date:T",
-            opacity=alt.condition(hover, alt.value(0.6), alt.value(0)),
-            tooltip=[
-                alt.Tooltip("date:T", title="Date", format="%a %d %b %Y"),
-                alt.Tooltip(f"{COUNTED}:N", title=COUNTED),
-                alt.Tooltip(f"{FORECAST}:N", title=FORECAST),
-            ],
-        )
-        .add_params(hover)
-    )
-    return alt.layer(line, dots, rule).properties(height=320)
-
-
 st.set_page_config(page_title="Münster bicycle forecast", page_icon="🚲")
 theme = st.context.theme.type or "light"
 today = today_in_muenster()
@@ -145,7 +86,7 @@ start = today - timedelta(weeks=CHART_WEEKS)
 daily = load_recent_counts(start)
 st.subheader(f"The last {CHART_WEEKS} weeks")
 data = chart_data(daily, log, start)
-st.altair_chart(counts_chart(data, theme), width="stretch")
+st.altair_chart(counts_chart(data, theme, SURFACE[theme]), width="stretch")
 st.caption(
     "Days with an outage or incomplete data are left out. The city publishes each day's counts "
     "the next morning."

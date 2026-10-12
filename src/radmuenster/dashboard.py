@@ -106,9 +106,9 @@ def counts_chart(data: pd.DataFrame, theme: str, surface: str) -> alt.LayerChart
         y=alt.Y("trips:Q", title="Trips per day", scale=alt.Scale(zero=True)),
         color=color,
     )
-    # invalid=None: a missing day breaks the line instead of being bridged
+    # invalid="break-paths-show-domains": a missing day breaks the line instead of being bridged
     line = base.transform_filter(alt.datum.series == COUNTED).mark_line(
-        strokeWidth=2, invalid=None
+        strokeWidth=2, invalid="break-paths-show-domains"
     )
     dots = base.transform_filter(alt.datum.series == FORECAST).mark_point(
         filled=True, size=90, opacity=1, stroke=surface, strokeWidth=2

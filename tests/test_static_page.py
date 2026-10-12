@@ -2,6 +2,7 @@ import json
 import re
 from datetime import date
 
+import numpy as np
 import pandas as pd
 
 from radmuenster.static_page import _json_for_script, render_page, write_site
@@ -11,8 +12,29 @@ TODAY = date(2026, 10, 12)
 
 
 def make_daily():
-    dates = pd.date_range("2026-08-01", "2026-10-11", freq="D", name="date")
-    return pd.DataFrame({"count": 6000.0, "complete": True}, index=dates)
+    """Two years of complete days, enough for every finding."""
+    dates = pd.date_range("2024-01-01", "2026-10-11", freq="D", name="date")
+    count = np.where(dates.dayofweek < 5, 6000.0, 3000.0)
+    return pd.DataFrame(
+        {
+            "count": count,
+            "count_in": count * 0.5,
+            "complete": True,
+            "direction_fault": False,
+            "n_flagged": 0,
+        },
+        index=dates,
+    )
+
+
+def make_weather():
+    dates = pd.date_range("2024-01-01", "2026-10-13", freq="D", name="date")
+    hours = np.tile([0.0, 2.0, 5.0, 10.0], len(dates) // 4 + 1)[: len(dates)]
+    return pd.DataFrame({"precipitation_hours": hours}, index=dates)
+
+
+def render(warnings=(), forecast_date="2026-10-13"):
+    return render_page(make_daily(), make_log(forecast_date), list(warnings), TODAY, make_weather())
 
 
 def make_log(forecast_date: str = "2026-10-13") -> pd.DataFrame:
@@ -35,23 +57,29 @@ def chart_specs(html: str) -> dict:
 
 
 def test_page_shows_forecast_and_both_chart_themes():
-    html = render_page(make_daily(), make_log(), [], TODAY)
+    html = render()
     assert "Forecast for Tuesday, 13 October 2026" in html
     assert "7,545" in html
     assert "All checks passed" in html
-    assert set(chart_specs(html)) == {"light", "dark"}
+    specs = chart_specs(html)
+    assert set(specs) == {"counts", "weekday", "month", "rain", "share"}
+    assert all(set(themes) == {"light", "dark"} for themes in specs.values())
+    # Every chart has its element on the page
+    assert all(f'id="chart-{name}"' in html for name in specs)
+    # Numbers in the text come from the data: Sunday is half a workday here
+    assert "On Sundays about 50% as many people cycle" in html
     # Every placeholder of the template was filled; "$schema" belongs to the
     # two Vega-Lite specs
     assert set(re.findall(r"\$[a-z_]+", html)) == {"$schema"}
 
 
 def test_page_escapes_warnings():
-    html = render_page(make_daily(), make_log(), ["Share <0.40> & falling"], TODAY)
+    html = render(warnings=["Share <0.40> & falling"])
     assert "Share &lt;0.40&gt; &amp; falling" in html
 
 
 def test_page_says_when_the_forecast_is_old():
-    html = render_page(make_daily(), make_log("2026-10-05"), [], TODAY)
+    html = render(forecast_date="2026-10-05")
     assert "The daily forecast is paused" in html
 
 
@@ -65,3 +93,8 @@ def test_write_site_creates_index(tmp_path):
     path = write_site("<html></html>", tmp_path / "site")
     assert path.read_text(encoding="utf-8") == "<html></html>"
     assert path.name == "index.html"
+
+
+def test_page_text_without_unflagged_outages():
+    html = render()
+    assert "outages it misses are found by comparing the two directions" in html

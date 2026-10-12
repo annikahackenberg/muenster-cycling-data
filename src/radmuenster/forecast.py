@@ -1,6 +1,7 @@
 """Forecast tomorrow's count and keep a log of all forecasts.
 
 Run every evening: python -m radmuenster.forecast
+This also runs the monitoring checks and saves their warnings.
 
 The model is trained anew on every run, on all complete days known so far.
 That takes a few seconds and means there is no stored model that could get
@@ -18,6 +19,7 @@ import pandas as pd
 from radmuenster.data import DEFAULT_SITE, load_intervals, to_daily
 from radmuenster.features import MIN_LAG, build_features, training_table
 from radmuenster.models import fit_lightgbm, predict_lightgbm
+from radmuenster.monitoring import STATUS_FILE, run_checks, write_status
 from radmuenster.weather import DAILY_VARIABLES, load_weather, load_weather_forecast
 
 # The counting site's local time decides what "today" and "tomorrow" are. The
@@ -131,12 +133,16 @@ def main() -> None:
     daily = to_daily(load_intervals(DEFAULT_SITE, end=today))
     weather = combine_weather(load_weather(end=today), load_weather_forecast())
     record = forecast_day(daily, weather, target, made_on=today)
-    save_forecast(record)
+    log = save_forecast(record)
+    warnings = run_checks(daily, log, today)
+    write_status(warnings, today)
 
     row = record.iloc[0]
     print(f"Forecast for {row['forecast_date']:%a %Y-%m-%d}: {row['prediction']} trips")
     print(f"Latest complete day: {row['latest_complete_day']:%Y-%m-%d}")
-    print(f"Saved to {FORECAST_FILE}")
+    print(f"Saved to {FORECAST_FILE} and {STATUS_FILE}")
+    for warning in warnings:
+        print(f"Warning: {warning}")
 
 
 if __name__ == "__main__":

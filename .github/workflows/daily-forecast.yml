@@ -1,0 +1,79 @@
+name: Daily forecast
+
+on:
+  schedule:
+    # Cron runs on UTC: 18:00 UTC is 20:00 in summer and 19:00 in winter in
+    # Münster. Scheduled runs may start late when GitHub is busy, so this
+    # leaves a few hours before midnight, when "tomorrow" would become "today".
+    - cron: "0 18 * * *"
+  workflow_dispatch: # manual run from the Actions tab
+
+# Write access to commit the forecast to main and to open monitoring issues
+permissions:
+  contents: write
+  issues: write
+
+# Never run two forecasts at once, they would both commit
+concurrency:
+  group: daily-forecast
+
+jobs:
+  forecast:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10.3.0
+        with:
+          python-version: "3.12"
+          activate-environment: true
+
+      - name: Install package
+        run: uv pip install -e .
+
+      # Final monthly files from earlier runs, so that only the recent months
+      # are downloaded again. Each run saves a new cache (run_id is unique)
+      # and restores the most recent one (restore-keys is a prefix).
+      - uses: actions/cache@v6
+        with:
+          path: data/raw
+          key: raw-data-${{ github.run_id }}
+          restore-keys: raw-data-
+
+      - name: Forecast tomorrow and run the monitoring
+        run: python -m radmuenster.forecast
+
+      - name: Commit forecast to main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add forecasts/
+          if git diff --cached --quiet; then
+            echo "Nothing to commit"
+            exit 0
+          fi
+          git commit -m "Add daily forecast of $(jq -r .checked_on forecasts/status.json)"
+          # main may have moved since the checkout (e.g. a merged pull request)
+          git pull --rebase origin main
+          git push origin HEAD:main
+
+      - name: Report monitoring warnings as an issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          count=$(jq '.warnings | length' forecasts/status.json)
+          if [ "$count" -eq 0 ]; then
+            echo "No warnings"
+            exit 0
+          fi
+          body=$(jq -r '"Monitoring of " + .checked_on + ":\n\n" + (.warnings | map("- " + .) | join("\n"))' forecasts/status.json)
+          gh label create monitoring --color D93F0B --description "Warnings of the daily monitoring" --force
+          # One open issue collects all warnings; a new comment per day while
+          # problems last. Close the issue once the cause is fixed.
+          issue=$(gh issue list --label monitoring --state open --json number --jq '.[0].number')
+          if [ -n "$issue" ]; then
+            gh issue comment "$issue" --body "$body"
+          else
+            gh issue create --title "Monitoring warnings" --label monitoring --body "$body"
+          fi
+          echo "::warning::$count monitoring warning(s), see the issue labelled monitoring"

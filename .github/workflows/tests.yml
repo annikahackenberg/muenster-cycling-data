@@ -1,0 +1,25 @@
+name: Tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    # The daily forecast commits only these files; no need to test them
+    paths-ignore: ["forecasts/**"]
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10.3.0
+        with:
+          python-version: "3.12"
+          activate-environment: true
+
+      - name: Install package with test dependencies
+        run: uv pip install -e ".[dev]"
+
+      - name: Run tests
+        run: pytest

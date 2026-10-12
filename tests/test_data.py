@@ -6,6 +6,7 @@ import requests
 
 from radmuenster.data import (
     download_month,
+    is_final,
     load_intervals,
     month_range,
     parse_month_csv,
@@ -156,6 +157,19 @@ def test_download_month_does_not_cache_current_month(server, tmp_path):
     server.responses[current] = FakeResponse(200, "csv text")
     assert download_month(SITE, current, tmp_path) == "csv text"
     assert not (tmp_path / SITE / f"{current}.csv").exists()
+
+
+@pytest.mark.parametrize(
+    ("today", "final"),
+    [
+        (date(2026, 8, 31), False),
+        (date(2026, 9, 2), False),  # a failed update may still deliver 31 August
+        (date(2026, 9, 3), True),
+        (date(2027, 1, 1), True),
+    ],
+)
+def test_month_is_final_from_the_third_of_the_next_month(today, final):
+    assert is_final("2026-08", today) == final
 
 
 def test_download_month_reads_cache_without_request(server, tmp_path):

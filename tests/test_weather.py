@@ -6,8 +6,10 @@ import requests
 
 from radmuenster.weather import (
     DAILY_VARIABLES,
+    FORECAST_URL,
     download_weather_year,
     load_weather,
+    load_weather_forecast,
     parse_weather_json,
 )
 
@@ -84,3 +86,16 @@ def test_load_weather_spans_years_and_cuts_to_range(server, tmp_path):
     server.responses[2024] = FakeResponse(200, make_json(["2024-01-01", "2024-01-02"]))
     weather = load_weather(date(2023, 12, 31), date(2024, 1, 1), tmp_path)
     assert [d.strftime("%Y-%m-%d") for d in weather.index] == ["2023-12-31", "2024-01-01"]
+
+
+def test_load_weather_forecast_asks_forecast_api(monkeypatch):
+    requests_seen = []
+
+    def fake_get(url: str, params: dict, timeout: float) -> FakeResponse:
+        requests_seen.append((url, params["forecast_days"]))
+        return FakeResponse(200, make_json(["2026-10-12", "2026-10-13"]))
+
+    monkeypatch.setattr(requests, "get", fake_get)
+    weather = load_weather_forecast()
+    assert requests_seen == [(FORECAST_URL, 2)]
+    assert len(weather) == 2

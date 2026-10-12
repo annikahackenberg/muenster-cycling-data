@@ -181,7 +181,12 @@ def fit_lightgbm(train: pd.DataFrame) -> tuple[LGBMRegressor, pd.Series]:
     return model, factors
 
 
+def predict_lightgbm(model: LGBMRegressor, factors: pd.Series, table: pd.DataFrame) -> np.ndarray:
+    """Counts predicted by a model from fit_lightgbm, back from the log scale."""
+    return np.exp(model.predict(_lightgbm_inputs(table, factors)))
+
+
 def lightgbm(train: pd.DataFrame, test: pd.DataFrame) -> np.ndarray:
     """Gradient-boosted trees on log(count), see fit_lightgbm."""
     model, factors = fit_lightgbm(train)
-    return np.exp(model.predict(_lightgbm_inputs(test, factors)))
+    return predict_lightgbm(model, factors, test)

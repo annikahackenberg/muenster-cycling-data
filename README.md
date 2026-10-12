@@ -4,6 +4,10 @@ Exploring Münster's bicycle traffic with open data – analysis, forecasting an
 
 First project: **daily forecast of bicycle trips at the Warendorfer Straße counting site** (data since January 2019).
 
+**Live page: [muenster-cycling-data.streamlit.app](https://muenster-cycling-data.streamlit.app)**: tomorrow's
+forecast, updated every evening, with the last eight weeks of counts. The free hosting puts the page to sleep
+when nobody visits it for a while; then it takes a moment to wake up.
+
 ## Data
 
 Source: [od-ms/radverkehr-zaehlstellen](https://github.com/od-ms/radverkehr-zaehlstellen), City of Münster,
@@ -145,8 +149,8 @@ and keeps showing the latest forecast. On Streamlit Community Cloud the app is i
 1. [x] Load data, aggregate to daily counts and explore (weekly pattern, season, autocorrelation, outliers, data quality)
 2. [x] Features: weather (Open-Meteo), weekday, public holidays NRW, semester periods, school holidays, lags, measurement period
 3. [x] Models: naive and holiday baseline, linear regression, LightGBM with time-based cross-validation
-4. [ ] Daily forecast: a scheduled GitHub Actions job computes tomorrow's forecast and the monitoring
+4. [x] Daily forecast: a scheduled GitHub Actions job computes tomorrow's forecast and the monitoring
    (warn when the direction share or the forecast error drifts, a sign of a new measurement jump);
-   a Streamlit page shows the forecast and the recent weeks
+   a [Streamlit page](https://muenster-cycling-data.streamlit.app) shows the forecast and the recent weeks
 5. [ ] AI assistant: ask questions about the data in natural language (an LLM with tools that query the
    counts, weather and forecasts)

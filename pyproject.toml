@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Analysis and forecasting of bicycle traffic in Münster using open counter data"
 requires-python = ">=3.11"
 dependencies = [
+    "altair>=5.5",
     "holidays>=0.50",
     "lightgbm>=4.3",
     "pandas>=2.2",

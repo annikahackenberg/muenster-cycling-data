@@ -4,9 +4,10 @@ Exploring Münster's bicycle traffic with open data – analysis, forecasting an
 
 First project: **daily forecast of bicycle trips at the Warendorfer Straße counting site** (data since January 2019).
 
-**Live page: [muenster-cycling-data.streamlit.app](https://muenster-cycling-data.streamlit.app)**: tomorrow's
-forecast, updated every evening, with the last eight weeks of counts. The free hosting puts the page to sleep
-when nobody visits it for a while; then it takes a moment to wake up.
+**Live: [annikahackenberg.github.io/muenster-cycling-data](https://annikahackenberg.github.io/muenster-cycling-data/)**:
+tomorrow's forecast, updated every evening, with the last eight weeks of counts, the monitoring and how it works.
+An interactive version runs on [Streamlit](https://muenster-cycling-data.streamlit.app); the free hosting puts it
+to sleep when nobody visits it for a while, then it takes a moment to wake up.
 
 ## Data
 
@@ -143,6 +144,10 @@ status. It reads the forecast log from `main` on GitHub, so it shows a new forec
 and loads the recent counts directly from the city. If the daily job is switched off, the page says so
 and keeps showing the latest forecast. On Streamlit Community Cloud the app is installed from
 [requirements.txt](requirements.txt).
+
+The daily job also builds a static version of the page ([static_page.py](src/radmuenster/static_page.py)) and
+publishes it on GitHub Pages, without a commit. It is a single HTML file with the same chart, embedded as a
+Vega-Lite spec, so it loads instantly and never sleeps.
 
 ## Roadmap
 

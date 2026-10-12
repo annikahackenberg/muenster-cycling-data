@@ -30,6 +30,8 @@ from radmuenster.dashboard import (
 )
 
 SITE_DIR = Path("site")
+# Daily counts of all sites, published next to the page (see write_sites_data)
+SITES_DATA = Path("data/sites_daily.parquet")
 CHART_WEEKS = 8
 
 REPO_URL = "https://github.com/annikahackenberg/muenster-cycling-data"
@@ -243,9 +245,23 @@ def render_page(
         monitoring=_monitoring_section(warnings, today),
         scripts="\n".join(f'<script src="{url}"></script>' for url in VEGA_SCRIPTS),
         repo=REPO_URL,
+        sites_data=SITES_DATA.as_posix(),
         streamlit=STREAMLIT_URL,
         **{f"{t}_{k}": v for t, colors in THEMES.items() for k, v in colors.items()},
     )
+
+
+def write_sites_data(sites_daily: pd.DataFrame, site_dir: Path = SITE_DIR) -> Path:
+    """Save the daily counts of all sites (load_all_sites) next to the page.
+
+    GitHub Pages publishes them with the page, without a commit, so the
+    repository history does not grow every day. The Streamlit page reads them
+    from there instead of downloading 1,500 monthly files.
+    """
+    path = site_dir / SITES_DATA
+    path.parent.mkdir(parents=True, exist_ok=True)
+    sites_daily.to_parquet(path, index=False)
+    return path
 
 
 def write_site(html: str, site_dir: Path = SITE_DIR) -> Path:
@@ -382,6 +398,8 @@ $monitoring
   <li><strong>Automation:</strong> a scheduled GitHub Actions workflow forecasts tomorrow, runs the
   monitoring, stores the forecast with its weather forecast and rebuilds this page.</li>
 </ol>
+<p>Daily counts of all 23 counting sites of the city, with flags for suspicious days (outages, missing and
+incomplete days), are published every evening as <a href="$sites_data">$sites_data</a> (Parquet).</p>
 <p>Code, exploratory analysis and model comparison: <a href="$repo">GitHub</a>.
 An interactive version of this page runs on <a href="$streamlit">Streamlit</a>
 (it may take a moment to wake up).</p>

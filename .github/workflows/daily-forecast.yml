@@ -39,16 +39,23 @@ jobs:
       - name: Install package
         run: uv pip install -e .
 
-      # Final monthly files from earlier runs, so that only the recent months
-      # are downloaded again. Each run saves a new cache (run_id is unique)
-      # and restores the most recent one (restore-keys is a prefix).
+      - name: Get the current month for the cache key
+        id: month
+        run: echo "month=$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
+
+      # Final monthly files of all counting sites from earlier runs, so that
+      # only the recent months are downloaded again (about 1,500 files
+      # otherwise). Final files change once a month, so one cache per month
+      # is enough: the first run of a month restores the latest older cache
+      # (restore-keys is a prefix) and saves a new one; later runs of the
+      # month find theirs and save nothing.
       - uses: actions/cache@v6
         with:
           path: data/raw
-          key: raw-data-${{ github.run_id }}
+          key: raw-data-${{ steps.month.outputs.month }}
           restore-keys: raw-data-
 
-      - name: Forecast tomorrow, run the monitoring and build the page
+      - name: Forecast tomorrow, run the monitoring, build the page and the data of all sites
         run: python -m radmuenster.forecast
 
       - name: Commit forecast to main

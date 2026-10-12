@@ -1,3 +1,6 @@
 # Streamlit Community Cloud installs the app from this file: the package
-# itself (from this repository) with the extra dependencies of the page
-.[app]
+# itself (from this repository) with the extra dependencies of the page.
+# Editable (-e), so that the app always runs the code of the current commit:
+# Streamlit Cloud reinstalls only when this file changes, and a regular
+# install would keep the copy of the package from the first deployment.
+-e .[app]

@@ -1,6 +1,7 @@
 """Daily weather in Münster from Open-Meteo.
 
-Source: https://open-meteo.com (historical weather API, ERA5 reanalysis)
+Source: https://open-meteo.com (historical weather API, ERA5 reanalysis, and
+forecast API for the coming days)
 License: CC BY 4.0
 """
 
@@ -14,6 +15,7 @@ import pandas as pd
 import requests
 
 ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
+FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 
 # Warendorfer Straße counting site
 LATITUDE = 51.963
@@ -82,3 +84,23 @@ def load_weather(
         for year in range(start.year, end.year + 1)
     ]
     return pd.concat(frames).sort_index().loc[str(start) : str(end)]
+
+
+def load_weather_forecast(days: int = 2) -> pd.DataFrame:
+    """Daily weather forecast from today on, for the given number of days.
+
+    The forecast comes from weather models (by default a mix of the best
+    models for the location), the archive from the ERA5 reanalysis. The two
+    differ systematically, e.g. in sunshine hours, so a model trained on the
+    archive sees slightly different inputs in the forecast.
+    """
+    params = {
+        "latitude": LATITUDE,
+        "longitude": LONGITUDE,
+        "forecast_days": days,
+        "daily": ",".join(DAILY_VARIABLES),
+        "timezone": "Europe/Berlin",
+    }
+    resp = requests.get(FORECAST_URL, params=params, timeout=30)
+    resp.raise_for_status()
+    return parse_weather_json(resp.text)

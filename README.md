@@ -11,8 +11,8 @@ license [Datenlizenz Deutschland Namensnennung 2.0](https://www.govdata.de/dl-de
 The city publishes 15-minute counts per counting site as one CSV file per month. This is raw data:
 outages and construction sites are not cleaned up.
 
-Weather: [Open-Meteo](https://open-meteo.com) historical weather API (ERA5 reanalysis),
-license [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+Weather: [Open-Meteo](https://open-meteo.com) historical weather API (ERA5 reanalysis) and
+forecast API, license [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
 
 ## Setup
 
@@ -97,9 +97,42 @@ WAPE is the sum of errors divided by the sum of actual counts; MAPE is dominated
 NRMSE by a few large errors. The cross-validation uses the measured weather of the forecast day, so the
 error of the app, which only has a weather forecast, will be higher.
 
+## Daily forecast
+
+```bash
+python -m radmuenster.forecast
+```
+
+Trains LightGBM on all complete days, forecasts tomorrow with the Open-Meteo weather forecast and appends
+the result to [forecasts/forecasts.csv](forecasts/forecasts.csv), together with the forecast weather it used.
+That weather is replaced by measured weather in the archive later, so the log is the basis for the honest
+error of the daily forecast. "Tomorrow" is determined in Münster's time zone.
+
+The same run checks whether the forecast can still be trusted and writes the warnings to
+[forecasts/status.json](forecasts/status.json):
+
+| Check | Warns when |
+|---|---|
+| Freshness | yesterday has no counts at all (the city's daily update failed) |
+| Incomplete days | 3 or more of the last 7 days are incomplete or faulty (dead channel) |
+| Inbound share | the median share of the last 14 days differs by more than 5 points from the 90 days before (new measurement jump) |
+| Bias | the forecasts of the last 28 days are on average more than 8 % too high or too low |
+
+Run against the history, the inbound share check finds both known jumps within two weeks
+(26 June 2024, 5 November 2025) and one more episode: from mid-May to early June 2026 the share
+dropped from about 0.50 to 0.37–0.43 for four weeks and then recovered.
+
+A GitHub Actions workflow ([.github/workflows/daily-forecast.yml](.github/workflows/daily-forecast.yml))
+runs every evening at 18:00 UTC, commits the forecast to `main` and opens an issue labelled `monitoring`
+when there are warnings.
+
 ## Roadmap
 
 1. [x] Load data, aggregate to daily counts and explore (weekly pattern, season, autocorrelation, outliers, data quality)
 2. [x] Features: weather (Open-Meteo), weekday, public holidays NRW, semester periods, school holidays, lags, measurement period
 3. [x] Models: naive and holiday baseline, linear regression, LightGBM with time-based cross-validation
-4. [ ] Streamlit app with the forecast for tomorrow, plus monitoring: warn when the direction share or the forecast error drifts (sign of a new measurement jump)
+4. [ ] Daily forecast: a scheduled GitHub Actions job computes tomorrow's forecast and the monitoring
+   (warn when the direction share or the forecast error drifts, a sign of a new measurement jump);
+   a Streamlit page shows the forecast and the recent weeks
+5. [ ] AI assistant: ask questions about the data in natural language (an LLM with tools that query the
+   counts, weather and forecasts)

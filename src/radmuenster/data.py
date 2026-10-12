@@ -35,6 +35,10 @@ MIN_DIRECTION_SHARE = 0.25
 MIN_COUNT_FOR_SHARE_CHECK = 500
 
 
+# Days after the end of a month until its file counts as final (see is_final)
+CACHE_AFTER_DAYS = 3
+
+
 def month_range(start: date, end: date) -> list[str]:
     """All months from start to end (inclusive) as 'YYYY-MM'."""
     months = pd.period_range(start=start, end=end, freq="M")
@@ -68,6 +72,17 @@ def parse_month_csv(text: str, site: str) -> pd.DataFrame:
     return out
 
 
+def is_final(month: str, today: date) -> bool:
+    """True if the city will not change the file of month any more.
+
+    The city updates around 5 am with the previous day, and a failed update
+    is delivered a day later (31 August 2026 arrived on 2 September), so a
+    file is final from the 3rd of the next month on. Older files never change.
+    """
+    month_end = pd.Period(month, freq="M").end_time.date()
+    return (today - month_end).days >= CACHE_AFTER_DAYS
+
+
 def download_month(site: str, month: str, cache_dir: Path) -> str | None:
     """Fetch a monthly CSV and cache it locally. None if it does not exist."""
     cache_file = cache_dir / site / f"{month}.csv"
@@ -79,9 +94,9 @@ def download_month(site: str, month: str, cache_dir: Path) -> str | None:
         return None
     resp.raise_for_status()
 
-    cache_file.parent.mkdir(parents=True, exist_ok=True)
-    # The current month still changes daily, so do not cache it.
-    if month != pd.Timestamp.today().strftime("%Y-%m"):
+    # Only cache final files, see is_final
+    if is_final(month, date.today()):
+        cache_file.parent.mkdir(parents=True, exist_ok=True)
         cache_file.write_text(resp.text, encoding="utf-8")
     return resp.text
 

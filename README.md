@@ -138,12 +138,26 @@ pip install -e ".[app]"
 streamlit run streamlit_app.py
 ```
 
-[streamlit_app.py](streamlit_app.py) shows tomorrow's forecast with the weather forecast it is based on,
+The Streamlit app has two pages. [Forecast](app_pages/forecast.py) shows tomorrow's forecast with the weather forecast it is based on,
 the counts and forecasts of the last eight weeks, the error of the logged forecasts and the monitoring
 status. It reads the forecast log from `main` on GitHub, so it shows a new forecast without redeploying,
 and loads the recent counts directly from the city. If the daily job is switched off, the page says so
-and keeps showing the latest forecast. On Streamlit Community Cloud the app is installed from
-[requirements.txt](requirements.txt).
+and keeps showing the latest forecast. [Explore all sites](app_pages/explore.py) shows the daily counts of
+all 23 counting sites of the city as published: compare sites over any period by day, week or month, see
+which periods are flagged and why, and which sites are busiest. On Streamlit Community Cloud the app is
+installed from [requirements.txt](requirements.txt).
+
+### All counting sites
+
+The city's 23 counting sites label their channels differently (inbound/outbound, IN/OUT, towards a place),
+some rebuilt their channels over time, and one swapped its labels. So only each site's total is used,
+which is always the sum of its channels ([sites.py](src/radmuenster/sites.py)). The counts are not changed;
+suspicious days are flagged instead: missing, incomplete, flagged by the city, zero, and dead channels. A
+channel counts as dead when it carried at least 10% of the trips, counts nothing for whole days and the
+site's total drops by at least 25% at the same time; when channels are rebuilt, the total stays the same.
+This finds outages the city did not flag, for example at the Wolbecker Straße, where one direction has
+counted almost nothing since August 2025. Changes in how a site counts (like the jump at the Warendorfer
+Straße in October 2025) are not detected.
 
 The daily job also builds a static version of the page ([static_page.py](src/radmuenster/static_page.py)) and
 publishes it on GitHub Pages, without a commit. It is a single HTML file with the same chart, embedded as a

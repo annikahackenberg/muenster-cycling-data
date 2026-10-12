@@ -126,6 +126,20 @@ A GitHub Actions workflow ([.github/workflows/daily-forecast.yml](.github/workfl
 runs every evening at 18:00 UTC, commits the forecast to `main` and opens an issue labelled `monitoring`
 when there are warnings.
 
+## Web page
+
+```bash
+pip install -e ".[app]"
+streamlit run streamlit_app.py
+```
+
+[streamlit_app.py](streamlit_app.py) shows tomorrow's forecast with the weather forecast it is based on,
+the counts and forecasts of the last eight weeks, the error of the logged forecasts and the monitoring
+status. It reads the forecast log from `main` on GitHub, so it shows a new forecast without redeploying,
+and loads the recent counts directly from the city. If the daily job is switched off, the page says so
+and keeps showing the latest forecast. On Streamlit Community Cloud the app is installed from
+[requirements.txt](requirements.txt).
+
 ## Roadmap
 
 1. [x] Load data, aggregate to daily counts and explore (weekly pattern, season, autocorrelation, outliers, data quality)

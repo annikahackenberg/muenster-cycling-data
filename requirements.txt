@@ -1,0 +1,3 @@
+# Streamlit Community Cloud installs the app from this file: the package
+# itself (from this repository) with the extra dependencies of the page
+.[app]

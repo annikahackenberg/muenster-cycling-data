@@ -15,11 +15,13 @@ labels.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-from radmuenster.data import MIN_INTERVALS_PER_DAY, OK_STATUS
+from radmuenster.data import MIN_INTERVALS_PER_DAY, OK_STATUS, load_site_intervals
 
 
 @dataclass(frozen=True)
@@ -148,3 +150,30 @@ def to_site_daily(intervals: pd.DataFrame) -> pd.DataFrame:
     flags = ["missing", "partial", "status_fault", "zero", "dead_channel"]
     daily["ok"] = ~daily[flags].any(axis=1)
     return daily[["total", "n_intervals", *flags, "note", "ok"]]
+
+
+def load_all_sites(
+    end: date | None = None, cache_dir: Path = Path("data/raw")
+) -> tuple[pd.DataFrame, dict[str, str]]:
+    """Daily totals with flags (to_site_daily) of all SITES, in one table.
+
+    Returns the table and the sites that could not be loaded, with the error.
+    One broken site (e.g. a new file format) must not stop the others or the
+    forecast; the daily job reports it as a monitoring warning instead.
+
+    Columns: site_id, site_name, date and the columns of to_site_daily.
+    """
+    frames, failed = [], {}
+    for site in SITES:
+        year, month = map(int, site.first_month.split("-"))
+        try:
+            intervals = load_site_intervals(site.id, start=date(year, month, 1), end=end, cache_dir=cache_dir)
+            daily = to_site_daily(intervals).reset_index()
+        # Deliberately broad: whatever breaks one site is reported, not raised
+        except Exception as error:
+            failed[site.name] = f"{type(error).__name__}: {error}"
+            continue
+        daily.insert(0, "site_id", site.id)
+        daily.insert(1, "site_name", site.name)
+        frames.append(daily)
+    return pd.concat(frames, ignore_index=True), failed

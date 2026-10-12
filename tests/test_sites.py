@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 
 from radmuenster.data import parse_month_channels
-from radmuenster.sites import SITES, SITES_BY_ID, to_site_daily
+from radmuenster.sites import SITES, SITES_BY_ID, load_all_sites, to_site_daily
 
 SITE = "300037405"
 CSV = (
@@ -80,3 +80,18 @@ def test_missing_partial_and_zero_days():
     assert daily["partial"].tolist() == [False, False, False, True, False]
     assert daily["status_fault"].tolist() == [False, False, False, False, True]
     assert daily["ok"].tolist() == [True, False, False, False, False]
+
+
+def test_load_all_sites_reports_broken_sites_and_keeps_the_others(monkeypatch):
+    days = pd.date_range("2026-01-01", periods=3, freq="D")
+
+    def fake_load(site_id, start, end=None, cache_dir=None):
+        if site_id == "100034980":  # Hammer Straße
+            raise ValueError("new file format")
+        return make_intervals(days, {"a": [100.0] * 3})
+
+    monkeypatch.setattr("radmuenster.sites.load_site_intervals", fake_load)
+    table, failed = load_all_sites()
+    assert failed == {"Hammer Straße": "ValueError: new file format"}
+    assert table["site_id"].nunique() == len(SITES) - 1
+    assert list(table.columns[:3]) == ["site_id", "site_name", "date"]

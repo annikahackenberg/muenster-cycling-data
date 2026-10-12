@@ -1,8 +1,8 @@
 """Forecast tomorrow's count and keep a log of all forecasts.
 
 Run every evening: python -m radmuenster.forecast
-This also runs the monitoring checks, saves their warnings and builds the
-static page for GitHub Pages.
+This also runs the monitoring checks, saves their warnings, builds the
+static page for GitHub Pages and the daily counts of all sites next to it.
 
 The model is trained anew on every run, on all complete days known so far.
 That takes a few seconds and means there is no stored model that could get
@@ -21,7 +21,8 @@ from radmuenster.data import DEFAULT_SITE, load_intervals, to_daily
 from radmuenster.features import MIN_LAG, build_features, training_table
 from radmuenster.models import fit_lightgbm, predict_lightgbm
 from radmuenster.monitoring import STATUS_FILE, run_checks, write_status
-from radmuenster.static_page import render_page, write_site
+from radmuenster.sites import load_all_sites
+from radmuenster.static_page import render_page, write_site, write_sites_data
 from radmuenster.weather import DAILY_VARIABLES, load_weather, load_weather_forecast
 
 # The counting site's local time decides what "today" and "tomorrow" are. The
@@ -136,14 +137,19 @@ def main() -> None:
     weather = combine_weather(load_weather(end=today), load_weather_forecast())
     record = forecast_day(daily, weather, target, made_on=today)
     log = save_forecast(record)
-    warnings = run_checks(daily, log, today)
+    sites_daily, failed_sites = load_all_sites(end=today)
+    warnings = run_checks(daily, log, today) + [
+        f"Counting site {name} could not be loaded ({error})." for name, error in failed_sites.items()
+    ]
     write_status(warnings, today)
     page = write_site(render_page(daily, log, warnings, today, weather))
+    sites_data = write_sites_data(sites_daily)
 
     row = record.iloc[0]
     print(f"Forecast for {row['forecast_date']:%a %Y-%m-%d}: {row['prediction']} trips")
     print(f"Latest complete day: {row['latest_complete_day']:%Y-%m-%d}")
     print(f"Saved to {FORECAST_FILE} and {STATUS_FILE}, page built in {page}")
+    print(f"Daily counts of {sites_daily['site_id'].nunique()} sites saved to {sites_data}")
     for warning in warnings:
         print(f"Warning: {warning}")
 

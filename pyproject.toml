@@ -13,6 +13,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+app = [
+    "streamlit>=1.50",
+]
 dev = [
     "pytest>=8",
     "jupyterlab>=4",

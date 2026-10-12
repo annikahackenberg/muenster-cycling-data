@@ -138,7 +138,7 @@ def main() -> None:
     log = save_forecast(record)
     warnings = run_checks(daily, log, today)
     write_status(warnings, today)
-    page = write_site(render_page(daily, log, warnings, today))
+    page = write_site(render_page(daily, log, warnings, today, weather))
 
     row = record.iloc[0]
     print(f"Forecast for {row['forecast_date']:%a %Y-%m-%d}: {row['prediction']} trips")

@@ -1,8 +1,9 @@
 """Static web page for GitHub Pages, built by the daily job.
 
 Unlike the Streamlit page, it never sleeps: it is a single HTML file, rebuilt
-every evening with the new forecast. The chart is the same Altair chart,
-embedded as a Vega-Lite spec and drawn in the browser.
+every evening with the new forecast and the key findings of the analysis.
+The charts are Altair charts, embedded as Vega-Lite specs and drawn in the
+browser.
 """
 
 from __future__ import annotations
@@ -13,8 +14,10 @@ from html import escape
 from pathlib import Path
 from string import Template
 
+import altair as alt
 import pandas as pd
 
+from radmuenster import findings
 from radmuenster.dashboard import (
     COUNTED,
     FORECAST,
@@ -57,12 +60,11 @@ CV_RESULTS = (
 MIN_ACCURACY_DAYS = 7
 
 
-def chart_spec(data: pd.DataFrame, theme: str) -> dict:
-    """The Vega-Lite spec of the counts chart in the page colors of theme."""
+def themed_spec(chart: alt.TopLevelMixin, theme: str) -> dict:
+    """The Vega-Lite spec of chart, full width, in the page colors of theme."""
     colors = THEMES[theme]
     chart = (
-        counts_chart(data, theme, colors["surface"])
-        .properties(width="container")
+        chart.properties(width="container")
         .configure(background="transparent")
         .configure_axis(
             labelColor=colors["muted"],
@@ -77,6 +79,80 @@ def chart_spec(data: pd.DataFrame, theme: str) -> dict:
         .configure_view(stroke=None)
     )
     return chart.to_dict()
+
+
+def _percent(factor: float) -> str:
+    """0.41 -> "41%"."""
+    return f"{factor:.0%}"
+
+
+def _findings_section(daily: pd.DataFrame, weather: pd.DataFrame) -> tuple[str, dict]:
+    """HTML of the key findings and the specs of their charts (per theme).
+
+    The numbers in the text are computed from the current data, so they stay
+    in line with the charts.
+    """
+    weekday = findings.weekday_profile(daily).set_index("weekday")["factor"]
+    month = findings.month_profile(daily)
+    by_month = month.set_index("month")["factor"]
+    busiest = by_month.nlargest(2)
+    rain = findings.rain_effect(daily, weather).set_index(["day_type", "rain"])["factor"]
+    outages = findings.unflagged_outages(daily)
+    share = findings.inbound_share(daily)
+
+    def drop(day_type: str) -> str:
+        # Difference between a dry day and a day with 8+ hours of rain
+        return f"{(rain[(day_type, 'Dry')] - rain[(day_type, '8+ h')]) * 100:.0f}"
+
+    if outages.empty:
+        outage_text = (
+            "The city marks faults in a status column; outages it misses are found by comparing the "
+            "two directions."
+        )
+    else:
+        starts = " and ".join(f"{row.start:%B %Y} ({row.days} days)" for row in outages.itertuples())
+        outage_text = (
+            f"The city marks faults in a status column, but it missed the longest outages: from {starts} "
+            "one direction counted nothing while the status said OK (grey bands). They are found by "
+            "comparing the two directions."
+        )
+    years = ", ".join(map(str, month.attrs["years"]))
+    html = f"""
+<h3>The weekday matters most</h3>
+<div id="chart-weekday" class="chart small" role="img" aria-label="Bar chart of the median count per weekday relative to an average workday."></div>
+<p>On Sundays about {_percent(weekday['Sun'])} as many people cycle as on an average workday, on Saturdays
+{_percent(weekday['Sat'])}. Wednesday is the busiest day ({_percent(weekday['Wed'])}); Wednesday and Saturday are
+market days on the Domplatz, which may explain it (a hypothesis, not checked).</p>
+
+<h3>The season matters less</h3>
+<div id="chart-month" class="chart small" role="img" aria-label="Bar chart of the typical monthly mean relative to the annual mean."></div>
+<p>January and December reach {_percent(by_month['Jan'])} and {_percent(by_month['Dec'])} of the annual mean,
+{busiest.index[0]} and {busiest.index[1]} {_percent(busiest.iloc[0])}. April dips: Easter, school holidays and the
+lecture-free period of the university fall into it. Median over the full years {years}.</p>
+
+<h3>Rain keeps leisure cyclists at home</h3>
+<div id="chart-rain" class="chart small" role="img" aria-label="Grouped bar chart of the count relative to a typical day by hours of rain, for workdays and weekends."></div>
+<p>Each day is compared with the typical day of the same weekday at the same time of year, which takes the
+weekly pattern and the season out. From a dry day to a day with eight or more hours of rain, the count drops
+by {drop(findings.WORKDAY)} percentage points on workdays, but by {drop(findings.WEEKEND)} at weekends:
+commuters ride anyway, leisure trips are dropped. Temperature hardly matters once the season is taken out.</p>
+
+<h3>The data cannot be taken at face value</h3>
+<div id="chart-share" class="chart small" role="img" aria-label="Line chart of the share of trips into the city over time, with shaded outages and dashed lines at two jumps."></div>
+<p>{outage_text} The share of trips into the city also jumps twice and stays on the new level
+(dashed lines), probably after maintenance at the counting site. Since October 2025 the site counts about
+40% more than before, more than the season explains. Counts from different periods are therefore not fully
+comparable, and the model gets the measurement period as a feature. In May and June 2026 the share dropped for
+about four weeks and then recovered; the cause is unknown.</p>
+"""
+    charts = {
+        "weekday": lambda t: findings.weekday_chart(findings.weekday_profile(daily), t),
+        "month": lambda t: findings.month_chart(month, t),
+        "rain": lambda t: findings.rain_chart(findings.rain_effect(daily, weather), t),
+        "share": lambda t: findings.share_chart(share, outages, t),
+    }
+    specs = {name: {t: themed_spec(make(t), t) for t in THEMES} for name, make in charts.items()}
+    return html, specs
 
 
 def _json_for_script(value) -> str:
@@ -123,11 +199,18 @@ def _monitoring_section(warnings: list[str], today: date) -> str:
     return f'<div class="status warn"><p><span aria-hidden="true">!</span> Warnings on {today:%d %B %Y}:</p><ul>{items}</ul></div>'
 
 
-def render_page(daily: pd.DataFrame, log: pd.DataFrame, warnings: list[str], today: date) -> str:
+def render_page(
+    daily: pd.DataFrame,
+    log: pd.DataFrame,
+    warnings: list[str],
+    today: date,
+    weather: pd.DataFrame,
+) -> str:
     """The whole page as HTML.
 
-    daily is the output of to_daily, log the forecast log, warnings the
-    result of run_checks, today the date of the run in Münster.
+    daily is the output of to_daily (all days since 2019, for the findings),
+    log the forecast log, warnings the result of run_checks, today the date of
+    the run in Münster, weather the output of load_weather.
     """
     forecast = latest_forecast(log)
     start = today - timedelta(weeks=CHART_WEEKS)
@@ -138,6 +221,10 @@ def render_page(daily: pd.DataFrame, log: pd.DataFrame, warnings: list[str], tod
             '<p class="status warn">The daily forecast is paused. This is the latest forecast, '
             f"made on {forecast['made_on']:%d %B %Y}.</p>"
         )
+    findings_html, specs = _findings_section(daily, weather)
+    specs["counts"] = {
+        t: themed_spec(counts_chart(data, t, THEMES[t]["surface"]), t) for t in THEMES
+    }
     cv_rows = "\n".join(
         f"<tr><td>{name}</td><td>{mae:,}</td><td>{wape:.1%}</td></tr>" for name, mae, wape in CV_RESULTS
     )
@@ -148,7 +235,8 @@ def render_page(daily: pd.DataFrame, log: pd.DataFrame, warnings: list[str], tod
         made_on=f"{forecast['made_on']:%d %B %Y}",
         stale=stale,
         weeks=CHART_WEEKS,
-        specs=_json_for_script({t: chart_spec(data, t) for t in THEMES}),
+        specs=_json_for_script(specs),
+        findings=findings_html,
         table_rows=_table_rows(data),
         accuracy=_accuracy_section(log, daily),
         cv_rows=cv_rows,
@@ -199,12 +287,17 @@ h1 { font-size: 2rem; line-height: 1.2; margin: 0 0 4px; }
 h2 { font-size: 1.25rem; margin: 40px 0 8px; }
 a { color: inherit; }
 .sub, .note, .unit, .label, footer { color: var(--muted); }
-.sub { margin: 0 0 28px; }
+.sub { margin: 0 0 12px; }
+.intro { margin: 0 0 12px; }
+nav { margin: 0 0 32px; color: var(--muted); font-size: 0.95rem; line-height: 1.9; }
+nav a { white-space: nowrap; }
 .note { font-size: 0.9rem; }
 .hero .label { font-size: 0.95rem; }
 .hero .value { font-size: 3rem; font-weight: 650; line-height: 1.1; font-variant-numeric: tabular-nums; }
 .hero .unit { margin-bottom: 4px; }
-#chart { width: 100%; min-height: 360px; }
+.chart { width: 100%; min-height: 360px; }
+.chart.small { min-height: 270px; }
+h3 { font-size: 1.05rem; margin: 28px 0 6px; }
 details { margin-top: 8px; }
 summary { cursor: pointer; color: var(--muted); }
 table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
@@ -228,9 +321,16 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--grid);
 <main>
 <h1>Bicycle traffic forecast</h1>
 <p class="sub">Counting site Warendorfer Straße, Münster · trips per day, both directions</p>
+<p class="intro">A daily forecast of bicycle traffic in Münster, built end to end from the city's open counting
+data: data cleaning, analysis, a machine learning model and an automated pipeline that updates this page
+every evening.</p>
+<nav aria-label="Sections">
+  <a href="#forecast">Forecast</a> · <a href="#findings">What the data shows</a> ·
+  <a href="#accuracy">Accuracy</a> · <a href="#monitoring">Monitoring</a> · <a href="#how">How it works</a>
+</nav>
 
 $stale
-<section class="hero">
+<section class="hero" id="forecast">
   <div class="label">Forecast for $forecast_day</div>
   <div class="value">$prediction</div>
   <div class="unit">bicycle trips</div>
@@ -238,7 +338,7 @@ $stale
 </section>
 
 <h2>The last $weeks weeks</h2>
-<div id="chart" role="img" aria-label="Line chart of the counted trips per day and dots for the forecasts; the same values are in the table below."></div>
+<div id="chart-counts" class="chart" role="img" aria-label="Line chart of the counted trips per day and dots for the forecasts; the same values are in the table below."></div>
 <p class="note">Days with an outage or incomplete data are left out. The city publishes each day's counts the next morning.</p>
 <details>
   <summary>Table</summary>
@@ -250,7 +350,11 @@ $table_rows
   </table>
 </details>
 
-<h2>How good are the forecasts?</h2>
+<h2 id="findings">What the data shows</h2>
+<p class="note">Key findings of the exploratory analysis, recomputed every evening from all complete days since 2019.</p>
+$findings
+
+<h2 id="accuracy">How good are the forecasts?</h2>
 $accuracy
 <table>
   <thead><tr><th>Model (cross-validation, measured weather)</th><th>MAE</th><th>WAPE</th></tr></thead>
@@ -261,12 +365,12 @@ $cv_rows
 <p class="note">Each quarter from 2023 on was forecast by a model trained only on the days before it
 (1,232 test days). MAE: mean error in trips per day. WAPE: sum of errors divided by the sum of counted trips.</p>
 
-<h2>Monitoring</h2>
+<h2 id="monitoring">Monitoring</h2>
 $monitoring
 <p class="note">Every evening the data is checked for outages, for jumps in the share of trips into the city
 (a sign that the counting site changed) and for forecasts that are off in the same direction for weeks.</p>
 
-<h2>How it works</h2>
+<h2 id="how">How it works</h2>
 <ol>
   <li><strong>Data:</strong> the City of Münster publishes 15-minute counts every morning. They are summed to
   daily totals; outages that the city's status misses are detected by comparing the two directions.</li>
@@ -296,7 +400,9 @@ $scripts
 const specs = JSON.parse(document.getElementById("chart-specs").textContent);
 const dark = window.matchMedia("(prefers-color-scheme: dark)");
 function draw() {
-  vegaEmbed("#chart", dark.matches ? specs.dark : specs.light, { actions: false });
+  for (const [name, spec] of Object.entries(specs)) {
+    vegaEmbed("#chart-" + name, dark.matches ? spec.dark : spec.light, { actions: false });
+  }
 }
 dark.addEventListener("change", draw);
 draw();

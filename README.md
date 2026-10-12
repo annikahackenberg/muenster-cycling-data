@@ -147,7 +147,9 @@ and keeps showing the latest forecast. On Streamlit Community Cloud the app is i
 
 The daily job also builds a static version of the page ([static_page.py](src/radmuenster/static_page.py)) and
 publishes it on GitHub Pages, without a commit. It is a single HTML file with the same chart, embedded as a
-Vega-Lite spec, so it loads instantly and never sleeps.
+Vega-Lite spec, so it loads instantly and never sleeps. It also shows the key findings of the exploratory
+analysis (weekly pattern, season, rain on workdays and weekends, data quality), recomputed every evening
+by [findings.py](src/radmuenster/findings.py).
 
 ## Roadmap
 

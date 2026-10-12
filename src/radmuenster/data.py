@@ -72,6 +72,32 @@ def parse_month_csv(text: str, site: str) -> pd.DataFrame:
     return out
 
 
+def parse_month_channels(text: str, site: str) -> pd.DataFrame:
+    """Convert a monthly CSV of any site into total, status and channels.
+
+    Columns: total (the site's count, always the sum of its channels),
+    status (of the total, as string) and one column per channel, named by
+    the channel's ID (e.g. "353409612"). The channel labels are left out:
+    they differ from site to site and changed over time (see sites.py).
+    """
+    df = pd.read_csv(StringIO(text), parse_dates=["Datetime"])
+    total_col = next(c for c in df.columns if c.startswith(f"{site} ("))
+    channel_cols = [
+        c for c in df.columns if c not in ("Datetime", total_col) and not c.endswith("-status")
+    ]
+    out = pd.DataFrame(
+        {
+            "total": pd.to_numeric(df[total_col], errors="coerce"),
+            "status": df[f"{site}-status"].astype(str),
+        }
+    )
+    for col in channel_cols:
+        # "353409612 (Promenade (westl. Hals) Fahrräder IN)" -> "353409612"
+        out[col.split(" ", 1)[0]] = pd.to_numeric(df[col], errors="coerce")
+    out.index = pd.DatetimeIndex(df["Datetime"], name="datetime")
+    return out
+
+
 def is_final(month: str, today: date) -> bool:
     """True if the city will not change the file of month any more.
 
@@ -114,6 +140,27 @@ def load_intervals(
         text = download_month(site, month, cache_dir)
         if text is not None:
             frames.append(parse_month_csv(text, site))
+    if not frames:
+        raise ValueError(f"No data found for site {site}")
+    return pd.concat(frames).sort_index()
+
+
+def load_site_intervals(
+    site: str,
+    start: date,
+    end: date | None = None,
+    cache_dir: Path = Path("data/raw"),
+) -> pd.DataFrame:
+    """15-minute total, status and channels of any site (parse_month_channels).
+
+    Channels that only exist in some months are NaN in the others.
+    """
+    end = end or date.today()
+    frames = []
+    for month in month_range(start, end):
+        text = download_month(site, month, cache_dir)
+        if text is not None:
+            frames.append(parse_month_channels(text, site))
     if not frames:
         raise ValueError(f"No data found for site {site}")
     return pd.concat(frames).sort_index()

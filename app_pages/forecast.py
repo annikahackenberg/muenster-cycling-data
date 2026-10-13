@@ -28,8 +28,9 @@ REPO_URL = "https://github.com/annikahackenberg/muenster-cycling-data"
 RAW_URL = "https://raw.githubusercontent.com/annikahackenberg/muenster-cycling-data/main/"
 CHART_WEEKS = 8
 
-# Streamlit's background, for the ring that separates markers from the line
-SURFACE = {"light": "#ffffff", "dark": "#0e1117"}
+# The app's background (dark: backgroundColor in .streamlit/config.toml), for
+# the ring that separates markers from the line
+SURFACE = {"light": "#ffffff", "dark": "#262624"}
 
 # The cached data is reloaded at most once an hour
 CACHE_SECONDS = 3600

@@ -1,0 +1,10 @@
+# Softer dark theme, as on the static page (static_page.THEMES): Streamlit's
+# default dark theme puts almost white text on almost black, which glares.
+# The light theme stays Streamlit's default; the app follows the system
+# setting, and the user can switch in the settings menu.
+[theme.dark]
+backgroundColor = "#262624"
+# Widgets, code blocks and the like: a little lighter than the background
+secondaryBackgroundColor = "#31302d"
+# Contrast 9.5:1 on the background
+textColor = "#cfcdc6"

@@ -20,7 +20,9 @@ import pandas as pd
 from radmuenster import findings
 from radmuenster.dashboard import (
     COUNTED,
+    CV_RESULTS,
     FORECAST,
+    HOW_IT_WORKS,
     chart_data,
     counts_chart,
     forecast_accuracy,
@@ -51,14 +53,6 @@ THEMES = {
     "light": {"surface": "#fcfcfb", "text": "#0b0b0b", "muted": "#52514e", "grid": "#e4e3df"},
     "dark": {"surface": "#262624", "text": "#cfcdc6", "muted": "#9f9d95", "grid": "#44443f"},
 }
-
-# Time-based cross-validation (notebook 02), 1,232 test days 2023 to 2026
-CV_RESULTS = (
-    ("Naive baseline (same weekday last week)", 960, 0.161),
-    ("Holiday baseline", 848, 0.143),
-    ("Linear regression on log(count)", 646, 0.109),
-    ("LightGBM on log(count)", 529, 0.089),
-)
 
 # Minimum number of checked forecast days before the page shows their error
 MIN_ACCURACY_DAYS = 7
@@ -245,6 +239,9 @@ def render_page(
         table_rows=_table_rows(data),
         accuracy=_accuracy_section(log, daily),
         cv_rows=cv_rows,
+        how_steps="\n".join(
+            f"  <li><strong>{step}:</strong> {escape(text)}</li>" for step, text in HOW_IT_WORKS
+        ),
         monitoring=_monitoring_section(warnings, today),
         scripts="\n".join(f'<script src="{url}"></script>' for url in VEGA_SCRIPTS),
         repo=REPO_URL,
@@ -391,15 +388,7 @@ $monitoring
 
 <h2 id="how">How it works</h2>
 <ol>
-  <li><strong>Data:</strong> the City of Münster publishes 15-minute counts every morning. They are summed to
-  daily totals; outages that the city's status misses are detected by comparing the two directions.</li>
-  <li><strong>Features:</strong> weekday, public holidays and bridge days in NRW, lecture periods of the
-  University of Münster, school holidays, weather, and counts from 2, 7, 14 and 364 days earlier. Lag 1 is
-  left out on purpose: when the forecast is made, today is not over yet.</li>
-  <li><strong>Model:</strong> gradient-boosted trees (LightGBM) on the logarithm of the count, retrained every
-  evening on all complete days since 2019.</li>
-  <li><strong>Automation:</strong> a scheduled GitHub Actions workflow forecasts tomorrow, runs the
-  monitoring, stores the forecast with its weather forecast and rebuilds this page.</li>
+$how_steps
 </ol>
 <p>Daily counts of all 23 counting sites of the city, with flags for suspicious days (outages, missing and
 incomplete days), are published every evening as <a href="$sites_data">$sites_data</a> (Parquet).</p>

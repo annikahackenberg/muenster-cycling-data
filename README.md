@@ -141,8 +141,9 @@ pip install -e ".[app]"
 streamlit run streamlit_app.py
 ```
 
-The Streamlit app has two pages. [Forecast](app_pages/forecast.py) shows tomorrow's forecast with the weather forecast it is based on,
-the counts and forecasts of the last eight weeks, the error of the logged forecasts and the monitoring
+The Streamlit app has two pages. [Forecast](app_pages/forecast.py) shows tomorrow's forecast next to the same weekday
+last week and a typical one, the weather forecast it is based on, what sets the day apart in the calendar
+(public holiday, school holidays, no lectures), the counts and forecasts of the last eight weeks, the error of the logged forecasts and the monitoring
 status. It reads the forecast log from `main` on GitHub, so it shows a new forecast without redeploying,
 and loads the recent counts directly from the city. If the daily job is switched off, the page says so
 and keeps showing the latest forecast. [Explore all sites](app_pages/explore.py) shows the daily counts of

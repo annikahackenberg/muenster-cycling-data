@@ -11,12 +11,16 @@ import pandas as pd
 import streamlit as st
 
 from radmuenster.dashboard import (
+    CV_RESULTS,
+    HOW_IT_WORKS,
     chart_data,
     counts_chart,
+    day_notes,
     forecast_accuracy,
+    forecast_context,
     is_stale,
     latest_forecast,
-    weather_summary,
+    weather_metrics,
 )
 from radmuenster.data import DEFAULT_SITE, load_intervals, to_daily
 from radmuenster.forecast import FORECAST_FILE, read_forecasts, today_in_muenster
@@ -66,6 +70,11 @@ theme = st.context.theme.type or "light"
 today = today_in_muenster()
 
 st.title("Bicycle traffic forecast")
+st.write(
+    "A daily forecast of bicycle traffic in Münster, built end to end from the city's open "
+    "counting data: data cleaning, analysis, a machine learning model and an automated pipeline "
+    "that updates this page every evening."
+)
 st.caption("Counting site Warendorfer Straße, Münster · trips per day, both directions")
 
 log = load_forecast_log()
@@ -76,11 +85,50 @@ if is_stale(forecast, today):
         f"{forecast['made_on']:%d %B %Y}."
     )
 
-st.metric(f"Forecast for {forecast['forecast_date']:%A, %d %B %Y}", f"{forecast['prediction']:,}")
-st.caption(f"Weather forecast: {weather_summary(forecast)}")
-
 start = today - timedelta(weeks=CHART_WEEKS)
 daily = load_recent_counts(start)
+day = forecast["forecast_date"]
+weekday = f"{day:%A}"
+context = forecast_context(forecast, daily)
+
+
+def trips(value: float | None) -> str:
+    return "–" if value is None else f"{value:,.0f}"
+
+
+st.subheader(f"{day:%A, %d %B %Y}")
+cols = st.columns(3)
+delta = None
+if context["typical"] is not None:
+    delta = f"{forecast['prediction'] / context['typical'] - 1:+.0%} vs. typical"
+# delta_color="off": more or fewer trips is neither good nor bad
+cols[0].metric("Forecast", f"{forecast['prediction']:,}", delta=delta, delta_color="off")
+cols[1].metric(
+    f"Last {weekday}", trips(context["last_week"]),
+    help="Counted trips one week earlier. Empty if that day was a public holiday or incomplete.",
+)
+cols[2].metric(
+    f"Typical {weekday}", trips(context["typical"]),
+    help=(
+        "Mean of the same weekday over the four weeks before, without public holidays and "
+        "incomplete days."
+    ),
+)
+
+st.markdown("**Weather forecast**")
+metrics = weather_metrics(forecast)
+for col, (label, value) in zip(st.columns(len(metrics)), metrics.items()):
+    col.metric(label, value)
+
+notes = day_notes(day)
+if notes:
+    st.markdown("**Calendar:** " + " · ".join(notes))
+else:
+    st.markdown(
+        "**Calendar:** a regular day: no public holiday, no school holidays, lectures at the "
+        "university."
+    )
+
 st.subheader(f"The last {CHART_WEEKS} weeks")
 data = chart_data(daily, log, start)
 st.altair_chart(counts_chart(data, theme, SURFACE[theme]), width="stretch")
@@ -100,7 +148,7 @@ if accuracy["n"] < 7:
     st.write(
         f"The daily forecast started recently; {accuracy['n']} forecast day(s) can be checked "
         "so far. In the time-based cross-validation (2023 to 2026, measured weather), the model "
-        "was off by 8.9 % on average (WAPE)."
+        f"was off by {CV_RESULTS[-1][2]:.1%} on average (WAPE)."
     )
 else:
     cols = st.columns(3)
@@ -120,17 +168,24 @@ if status["warnings"]:
 else:
     st.success(f"All checks passed on {status['checked_on']}.", icon="✅")
 
-with st.expander("About"):
-    st.markdown(
-        f"""
-Every evening a scheduled job trains a LightGBM model on all counts since 2019 and forecasts the
-next day, using the calendar (weekday, public holidays, university lecture periods, school
-holidays), recent counts and the weather forecast. It also checks the data for outages and for
-changes at the counting site. Code, analysis and model comparison: [GitHub]({REPO_URL}).
-
-Data: bicycle counts by the [City of Münster](https://github.com/od-ms/radverkehr-zaehlstellen),
-license [Datenlizenz Deutschland Namensnennung 2.0](https://www.govdata.de/dl-de/by-2-0).
-Weather: [Open-Meteo](https://open-meteo.com),
-license [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
-"""
-    )
+st.subheader("How it works")
+st.markdown("\n".join(f"{i}. **{step}:** {text}" for i, (step, text) in enumerate(HOW_IT_WORKS, 1)))
+st.markdown(
+    "**Model comparison** in a time-based cross-validation: each quarter from 2023 on is forecast "
+    "by a model trained on all days before it, with the measured weather of the forecast day. The "
+    "daily forecast only has a weather forecast, so its error will be somewhat higher."
+)
+st.dataframe(
+    pd.DataFrame(CV_RESULTS, columns=["Model", "Mean error (trips)", "WAPE"]).style.format(
+        {"Mean error (trips)": "{:,}", "WAPE": "{:.1%}"}
+    ),
+    hide_index=True,
+    width="content",
+)
+st.caption(
+    f"Code, analysis and model comparison: [GitHub]({REPO_URL}). "
+    "Data: bicycle counts by the [City of Münster](https://github.com/od-ms/radverkehr-zaehlstellen), "
+    "license [Datenlizenz Deutschland Namensnennung 2.0](https://www.govdata.de/dl-de/by-2-0). "
+    "Weather: [Open-Meteo](https://open-meteo.com), "
+    "license [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)."
+)

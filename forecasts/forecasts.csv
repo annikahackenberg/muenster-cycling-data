@@ -1,2 +1,3 @@
 forecast_date,made_on,model,prediction,latest_complete_day,lag_2,period,temp_mean,temp_max,precipitation,precipitation_hours,snowfall,sunshine,wind_max
 2026-10-13,2026-10-12,lightgbm,7471,2026-10-11,2584.0,2,12.2,15.6,2.3,8.0,0.0,0.0,18.0
+2026-10-14,2026-10-13,lightgbm,9087,2026-10-12,8076.0,2,12.8,16.5,0.0,0.0,0.0,9.521108333333332,13.0

@@ -202,12 +202,20 @@ def share_chart(share: pd.DataFrame, outages: pd.DataFrame, theme: str) -> alt.L
     """Inbound share over time, with unflagged outages as shaded bands and
     the starts of the measurement periods as labelled rules."""
     color = SERIES_COLORS[theme][next(iter(SERIES_COLORS[theme]))]
+    first, last = share["date"].min().year, share["date"].max().year
+    # Each year is labelled in its middle (1 July) and separated from the next
+    # by a thin line on 1 January; axis labels alone would sit on the boundary
+    mid_years = [pd.Timestamp(year, 7, 1).isoformat() for year in range(first, last + 1)]
+    year_starts = pd.DataFrame({"date": [pd.Timestamp(year, 1, 1) for year in range(first + 1, last + 1)]})
     line = (
         alt.Chart(share)
         .mark_line(color=color, strokeWidth=2, invalid="break-paths-show-domains")
         .encode(
-            # Grid lines at each 1 January separate the years
-            x=alt.X("date:T", title=None, axis=alt.Axis(format="%Y", grid=True, tickCount="year")),
+            x=alt.X(
+                "date:T",
+                title=None,
+                axis=alt.Axis(format="%Y", values=mid_years, grid=False, ticks=False),
+            ),
             y=alt.Y("share:Q", title="Share of trips into the city", scale=alt.Scale(domain=[0.3, 0.7])),
             tooltip=[
                 alt.Tooltip("date:T", title="Date", format="%d %b %Y"),
@@ -237,7 +245,8 @@ def share_chart(share: pd.DataFrame, outages: pd.DataFrame, theme: str) -> alt.L
         .mark_text(align="right", dx=-4, dy=4, baseline="top", color="gray")
         .encode(x="date:T", y=alt.value(0), text="label:N")
     )
-    return alt.layer(bands, line, rules, labels).properties(height=CHART_HEIGHT)
+    years = alt.Chart(year_starts).mark_rule(color="gray", opacity=0.3).encode(x="date:T")
+    return alt.layer(years, bands, line, rules, labels).properties(height=CHART_HEIGHT)
 
 
 @dataclass(frozen=True)

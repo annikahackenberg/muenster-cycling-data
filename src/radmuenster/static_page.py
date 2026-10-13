@@ -44,10 +44,12 @@ VEGA_SCRIPTS = (
     "https://cdn.jsdelivr.net/npm/vega-embed@7.2.0",
 )
 
-# Page colors per theme; surface and text as in the validated palette
+# Page colors per theme. The dark theme avoids pure white on near black
+# (contrast 17:1 glares): a lighter surface with an off-white text (9.5:1,
+# muted 5.6:1). The series colors keep at least 3.9:1 against it.
 THEMES = {
     "light": {"surface": "#fcfcfb", "text": "#0b0b0b", "muted": "#52514e", "grid": "#e4e3df"},
-    "dark": {"surface": "#1a1a19", "text": "#ffffff", "muted": "#c3c2b7", "grid": "#3a3a37"},
+    "dark": {"surface": "#262624", "text": "#cfcdc6", "muted": "#9f9d95", "grid": "#44443f"},
 }
 
 # Time-based cross-validation (notebook 02), 1,232 test days 2023 to 2026
@@ -144,8 +146,9 @@ commuters ride anyway, leisure trips are dropped. Temperature hardly matters onc
 <p>{outage_text} The share of trips into the city also jumps twice and stays on the new level
 (dashed lines), probably after maintenance at the counting site. Since October 2025 the site counts about
 40% more than before, more than the season explains. Counts from different periods are therefore not fully
-comparable, and the model gets the measurement period as a feature. In May and June 2026 the share dropped for
-about four weeks and then recovered; the cause is unknown.</p>
+comparable, and the model gets the measurement period as a feature. In May 2026 the inbound channel slowly
+lost about a third of its trips while the outbound channel counted as usual, until it recovered overnight on
+3 June. These four weeks are marked as faulty by hand and left out (the gap in the line).</p>
 """
     charts = {
         "weekday": lambda t: findings.weekday_chart(findings.weekday_profile(daily), t),

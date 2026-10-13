@@ -36,7 +36,8 @@ python -m radmuenster
 
 Downloads all monthly files to `data/raw/` (cached) and writes the daily totals to
 `data/processed/daily_100034983.parquet`. The column `complete` marks days that are complete,
-have no fault status and where both directions counted plausibly.
+have no fault status, where both directions counted plausibly and that are not in the list of known
+faults (`KNOWN_FAULTS` in [data.py](src/radmuenster/data.py), faults the automatic checks miss).
 
 ## Findings from the exploratory analysis
 
@@ -125,7 +126,9 @@ The same run checks whether the forecast can still be trusted and writes the war
 
 Run against the history, the inbound share check finds both known jumps within two weeks
 (26 June 2024, 5 November 2025) and one more episode: from mid-May to early June 2026 the share
-dropped from about 0.50 to 0.37–0.43 for four weeks and then recovered.
+dropped from about 0.50 to 0.37–0.43 for four weeks and then recovered. The inbound channel counted
+30–50 % less than a year earlier while the outbound channel was normal, a slowly failing sensor rather
+than a change in traffic, so these days are now marked as a known fault.
 
 A GitHub Actions workflow ([.github/workflows/daily-forecast.yml](.github/workflows/daily-forecast.yml))
 runs every evening at 18:00 UTC, commits the forecast to `main` and opens an issue labelled `monitoring`
@@ -172,6 +175,11 @@ by [findings.py](src/radmuenster/findings.py).
 3. [x] Models: naive and holiday baseline, linear regression, LightGBM with time-based cross-validation
 4. [x] Daily forecast: a scheduled GitHub Actions job computes tomorrow's forecast and the monitoring
    (warn when the direction share or the forecast error drifts, a sign of a new measurement jump);
-   a [Streamlit page](https://muenster-cycling-data.streamlit.app) shows the forecast and the recent weeks
-5. [ ] AI assistant: ask questions about the data in natural language (an LLM with tools that query the
+   a [Streamlit page](https://muenster-cycling-data.streamlit.app) and a
+   [static page](https://annikahackenberg.github.io/muenster-cycling-data/) show the forecast and the recent weeks
+5. [x] Key findings on the static page: weekly pattern, season, rain, data quality, recomputed every evening
+6. [x] All 23 counting sites: load them, flag suspicious days (outages, dead channels) and explore and
+   compare them in Streamlit
+7. [ ] AI assistant: ask questions about the data in natural language (an LLM with tools that query the
    counts, weather and forecasts)
+8. [ ] Later, if useful: forecasts for more counting sites

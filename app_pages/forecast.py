@@ -180,6 +180,7 @@ st.dataframe(
         {"Mean error (trips)": "{:,}", "WAPE": "{:.1%}"}
     ),
     hide_index=True,
+    width="content",
 )
 st.caption(
     f"Code, analysis and model comparison: [GitHub]({REPO_URL}). "

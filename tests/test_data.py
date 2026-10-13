@@ -5,6 +5,7 @@ import pytest
 import requests
 
 from radmuenster.data import (
+    KNOWN_FAULTS,
     download_month,
     is_final,
     load_intervals,
@@ -106,6 +107,23 @@ def test_quiet_day_with_dead_direction_is_incomplete():
     # (e.g. Christmas 2023 during the inbound outage)
     df = parse_month_csv(make_csv("2023-12-25", [2] * 96, dead_inbound=""), SITE)
     assert bool(to_daily(df)["direction_fault"].iloc[0])
+
+
+def test_day_in_known_fault_is_incomplete():
+    # Two normal days; only the second lies in the known fault
+    df = parse_month_csv(make_csv("2026-05-04", [40] * 192), SITE)
+    faults = [("2026-05-05", "2026-05-05", "test")]
+    daily = to_daily(df, known_faults=faults)
+    assert daily["known_fault"].tolist() == [False, True]
+    assert daily["complete"].tolist() == [True, False]
+    # The counts themselves stay as published
+    assert daily["count"].tolist() == [3840, 3840]
+
+
+def test_known_faults_are_valid_ranges():
+    for first, last, reason in KNOWN_FAULTS:
+        assert pd.Timestamp(first) <= pd.Timestamp(last)
+        assert reason
 
 
 class FakeResponse:

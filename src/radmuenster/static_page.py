@@ -144,8 +144,9 @@ commuters ride anyway, leisure trips are dropped. Temperature hardly matters onc
 <p>{outage_text} The share of trips into the city also jumps twice and stays on the new level
 (dashed lines), probably after maintenance at the counting site. Since October 2025 the site counts about
 40% more than before, more than the season explains. Counts from different periods are therefore not fully
-comparable, and the model gets the measurement period as a feature. In May and June 2026 the share dropped for
-about four weeks and then recovered; the cause is unknown.</p>
+comparable, and the model gets the measurement period as a feature. In May 2026 the inbound channel slowly
+lost about a third of its trips while the outbound channel counted as usual, until it recovered overnight on
+3 June. These four weeks are marked as faulty by hand and left out (the gap in the line).</p>
 """
     charts = {
         "weekday": lambda t: findings.weekday_chart(findings.weekday_profile(daily), t),

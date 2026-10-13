@@ -34,6 +34,19 @@ MIN_DIRECTION_SHARE = 0.25
 # varies by chance, so the share check only applies above this many trips.
 MIN_COUNT_FOR_SHARE_CHECK = 500
 
+# Faults of DEFAULT_SITE that the checks above miss, found by looking at the
+# data: (first day, last day, reason), both days inclusive. The city never
+# corrects old months, so this list only grows.
+KNOWN_FAULTS = [
+    (
+        "2026-05-05",
+        "2026-06-02",
+        "inbound counted 30-50 % less than a year earlier while outbound was normal; "
+        "the inbound share fell gradually from 0.45 to 0.35 and recovered overnight on 3 June",
+    ),
+    ("2026-07-13", "2026-07-13", "first day of the inbound outage of 14-18 July, inbound share 0.40"),
+    ("2026-07-19", "2026-07-19", "last day of the inbound outage of 14-18 July, inbound share 0.38"),
+]
 
 # Days after the end of a month until its file counts as final (see is_final)
 CACHE_AFTER_DAYS = 3
@@ -166,7 +179,9 @@ def load_site_intervals(
     return pd.concat(frames).sort_index()
 
 
-def to_daily(intervals: pd.DataFrame) -> pd.DataFrame:
+def to_daily(
+    intervals: pd.DataFrame, known_faults: list[tuple[str, str, str]] = KNOWN_FAULTS
+) -> pd.DataFrame:
     """Aggregate 15-minute counts to daily totals.
 
     Columns:
@@ -180,8 +195,9 @@ def to_daily(intervals: pd.DataFrame) -> pd.DataFrame:
                        MIN_DIRECTION_SHARE of the day's trips (only on days with
                        at least MIN_COUNT_FOR_SHARE_CHECK trips); both mean a
                        (partly) dead channel
-      complete         True if the day is complete, has no fault status and
-                       no direction fault
+      known_fault      True if the day lies in one of known_faults
+      complete         True if the day is complete, has no fault status, no
+                       direction fault and no known fault
     """
     grouped = intervals.groupby(intervals.index.normalize())
     daily = pd.DataFrame(
@@ -205,9 +221,13 @@ def to_daily(intervals: pd.DataFrame) -> pd.DataFrame:
     one_dead = (weaker == 0) & (both > 0)
     one_weak = (both >= MIN_COUNT_FOR_SHARE_CHECK) & (weaker / both < MIN_DIRECTION_SHARE)
     daily["direction_fault"] = one_dead | one_weak
+    daily["known_fault"] = False
+    for first, last, _ in known_faults:
+        daily.loc[first:last, "known_fault"] = True
     daily["complete"] = (
         (daily["n_intervals"] >= MIN_INTERVALS_PER_DAY)
         & (daily["n_flagged"] == 0)
         & ~daily["direction_fault"]
+        & ~daily["known_fault"]
     )
     return daily

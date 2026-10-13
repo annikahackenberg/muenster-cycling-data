@@ -83,6 +83,21 @@ def test_page_shows_forecast_and_both_chart_themes():
     assert set(re.findall(r"\$[a-z_]+", html)) == {"$schema"}
 
 
+def test_page_puts_the_forecast_into_context():
+    html = render()
+    # make_daily: 6,000 trips on every workday, so the forecast of 7,545 for
+    # Tuesday 13 October is 26% more than a typical Tuesday
+    assert "bicycle trips · 26% more than a typical Tuesday" in html
+    assert "Last Tuesday" in html and "Typical Tuesday" in html
+    assert '<div class="value">6,000</div>' in html
+    assert "Max temperature" in html
+    assert "Calendar:" in html
+
+
+def test_page_links_to_the_app():
+    assert 'href="https://muenster-cycling-data.streamlit.app">Open the interactive app' in render()
+
+
 def test_page_escapes_warnings():
     html = render(warnings=["Share <0.40> & falling"])
     assert "Share &lt;0.40&gt; &amp; falling" in html

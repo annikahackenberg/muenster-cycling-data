@@ -166,9 +166,12 @@ Straße in October 2025) are not detected.
 
 The daily job also builds a static version of the page ([static_page.py](src/radmuenster/static_page.py)) and
 publishes it on GitHub Pages, without a commit. It is a single HTML file with the same chart, embedded as a
-Vega-Lite spec, so it loads instantly and never sleeps. It also shows the key findings of the exploratory
-analysis (weekly pattern, season, rain on workdays and weekends, data quality), recomputed every evening
-by [findings.py](src/radmuenster/findings.py).
+Vega-Lite spec, so it loads instantly and never sleeps. It shows the forecast in the same context as the
+app and the key findings of the exploratory analysis (weekly pattern, season, rain on workdays and
+weekends, data quality), recomputed every evening by [findings.py](src/radmuenster/findings.py), and links
+to the app. Both pages take their texts and numbers from the same functions. Next to the page, the job
+publishes the daily counts of all sites, of the Warendorfer Straße and the weather as Parquet files, which
+the app reads instead of downloading them from the city.
 
 ## Roadmap
 

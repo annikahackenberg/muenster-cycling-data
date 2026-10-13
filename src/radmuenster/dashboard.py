@@ -119,15 +119,6 @@ def forecast_accuracy(log: pd.DataFrame, daily: pd.DataFrame) -> dict[str, float
     }
 
 
-def weather_summary(forecast: pd.Series) -> str:
-    """The forecast weather of a row of the forecast log, in one line."""
-    return (
-        f"{forecast['temp_max']:.0f} °C max · {forecast['precipitation']:.1f} mm rain "
-        f"over {forecast['precipitation_hours']:.0f} h · {forecast['sunshine']:.0f} h sun · "
-        f"wind up to {forecast['wind_max']:.0f} km/h"
-    )
-
-
 def weather_metrics(forecast: pd.Series) -> dict[str, str]:
     """The forecast weather of a row of the forecast log, one short value
     per label (they are shown large, side by side). Rain as hours, which

@@ -22,7 +22,14 @@ from radmuenster.features import MIN_LAG, build_features, training_table
 from radmuenster.models import fit_lightgbm, predict_lightgbm
 from radmuenster.monitoring import STATUS_FILE, run_checks, write_status
 from radmuenster.sites import load_all_sites
-from radmuenster.static_page import render_page, write_site, write_sites_data
+from radmuenster.static_page import (
+    DAILY_DATA,
+    SITES_DATA,
+    WEATHER_DATA,
+    render_page,
+    write_data,
+    write_site,
+)
 from radmuenster.weather import DAILY_VARIABLES, load_weather, load_weather_forecast
 
 # The counting site's local time decides what "today" and "tomorrow" are. The
@@ -143,7 +150,9 @@ def main() -> None:
     ]
     write_status(warnings, today)
     page = write_site(render_page(daily, log, warnings, today, weather))
-    sites_data = write_sites_data(sites_daily)
+    sites_data = write_data(sites_daily, SITES_DATA)
+    write_data(daily, DAILY_DATA)
+    write_data(weather, WEATHER_DATA)
 
     row = record.iloc[0]
     print(f"Forecast for {row['forecast_date']:%a %Y-%m-%d}: {row['prediction']} trips")

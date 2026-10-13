@@ -5,7 +5,17 @@ from datetime import date
 import numpy as np
 import pandas as pd
 
-from radmuenster.static_page import _json_for_script, render_page, write_site, write_sites_data
+import requests
+
+from radmuenster import static_page
+from radmuenster.static_page import (
+    SITES_DATA,
+    _json_for_script,
+    read_published,
+    render_page,
+    write_data,
+    write_site,
+)
 from radmuenster.weather import DAILY_VARIABLES
 
 TODAY = date(2026, 10, 12)
@@ -100,8 +110,24 @@ def test_page_text_without_unflagged_outages():
     assert "outages it misses are found by comparing the two directions" in html
 
 
-def test_write_sites_data_next_to_the_page(tmp_path):
+def test_write_data_next_to_the_page(tmp_path):
     table = pd.DataFrame({"site_id": ["1"], "date": [pd.Timestamp("2026-10-11")], "total": [10.0]})
-    path = write_sites_data(table, tmp_path)
+    path = write_data(table, SITES_DATA, tmp_path)
     assert path == tmp_path / "data" / "sites_daily.parquet"
     assert pd.read_parquet(path).equals(table)
+
+
+def test_write_data_keeps_the_date_index(tmp_path):
+    daily = make_daily()
+    path = write_data(daily, SITES_DATA, tmp_path)
+    assert pd.read_parquet(path).equals(daily)
+
+
+def test_read_published_falls_back_to_the_local_file(tmp_path, monkeypatch):
+    def offline(*args, **kwargs):
+        raise requests.ConnectionError("no network")
+
+    monkeypatch.setattr(static_page.requests, "get", offline)
+    table = pd.DataFrame({"total": [1.0, 2.0]})
+    write_data(table, SITES_DATA, tmp_path)
+    assert read_published(SITES_DATA, tmp_path).equals(table)

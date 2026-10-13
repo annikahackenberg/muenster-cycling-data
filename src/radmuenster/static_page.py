@@ -11,13 +11,16 @@ from __future__ import annotations
 import json
 from datetime import date, timedelta
 from html import escape
+from io import BytesIO
 from pathlib import Path
 from string import Template
 
 import altair as alt
 import pandas as pd
+import requests
 
 from radmuenster import findings
+from radmuenster.data import DEFAULT_SITE
 from radmuenster.dashboard import (
     COUNTED,
     CV_RESULTS,
@@ -32,8 +35,13 @@ from radmuenster.dashboard import (
 )
 
 SITE_DIR = Path("site")
-# Daily counts of all sites, published next to the page (see write_sites_data)
+PAGES_URL = "https://annikahackenberg.github.io/muenster-cycling-data/"
+# Data files published next to the page (see write_data), for the Streamlit
+# app: the daily counts of all sites, and for the findings the daily counts of
+# the forecast site and the weather
 SITES_DATA = Path("data/sites_daily.parquet")
+DAILY_DATA = Path(f"data/daily_{DEFAULT_SITE}.parquet")
+WEATHER_DATA = Path("data/weather.parquet")
 CHART_WEEKS = 8
 
 REPO_URL = "https://github.com/annikahackenberg/muenster-cycling-data"
@@ -79,78 +87,17 @@ def themed_spec(chart: alt.TopLevelMixin, theme: str) -> dict:
     return chart.to_dict()
 
 
-def _percent(factor: float) -> str:
-    """0.41 -> "41%"."""
-    return f"{factor:.0%}"
-
-
 def _findings_section(daily: pd.DataFrame, weather: pd.DataFrame) -> tuple[str, dict]:
-    """HTML of the key findings and the specs of their charts (per theme).
-
-    The numbers in the text are computed from the current data, so they stay
-    in line with the charts.
-    """
-    weekday = findings.weekday_profile(daily).set_index("weekday")["factor"]
-    month = findings.month_profile(daily)
-    by_month = month.set_index("month")["factor"]
-    busiest = by_month.nlargest(2)
-    rain = findings.rain_effect(daily, weather).set_index(["day_type", "rain"])["factor"]
-    outages = findings.unflagged_outages(daily)
-    share = findings.inbound_share(daily)
-
-    def drop(day_type: str) -> str:
-        # Difference between a dry day and a day with 8+ hours of rain
-        return f"{(rain[(day_type, 'Dry')] - rain[(day_type, '8+ h')]) * 100:.0f}"
-
-    if outages.empty:
-        outage_text = (
-            "The city marks faults in a status column; outages it misses are found by comparing the "
-            "two directions."
-        )
-    else:
-        starts = " and ".join(f"{row.start:%B %Y} ({row.days} days)" for row in outages.itertuples())
-        outage_text = (
-            f"The city marks faults in a status column, but it missed the longest outages: from {starts} "
-            "one direction counted nothing while the status said OK (grey bands). They are found by "
-            "comparing the two directions."
-        )
-    years = ", ".join(map(str, month.attrs["years"]))
-    html = f"""
-<h3>The weekday matters most</h3>
-<div id="chart-weekday" class="chart small" role="img" aria-label="Bar chart of the median count per weekday relative to an average workday."></div>
-<p>On Sundays about {_percent(weekday['Sun'])} as many people cycle as on an average workday, on Saturdays
-{_percent(weekday['Sat'])}. Wednesday is the busiest day ({_percent(weekday['Wed'])}); Wednesday and Saturday are
-market days on the Domplatz, which may explain it (a hypothesis, not checked).</p>
-
-<h3>The season matters less</h3>
-<div id="chart-month" class="chart small" role="img" aria-label="Bar chart of the typical monthly mean relative to the annual mean."></div>
-<p>January and December reach {_percent(by_month['Jan'])} and {_percent(by_month['Dec'])} of the annual mean,
-{busiest.index[0]} and {busiest.index[1]} {_percent(busiest.iloc[0])}. April dips: Easter, school holidays and the
-lecture-free period of the university fall into it. Median over the full years {years}.</p>
-
-<h3>Rain keeps leisure cyclists at home</h3>
-<div id="chart-rain" class="chart small" role="img" aria-label="Grouped bar chart of the count relative to a typical day by hours of rain, for workdays and weekends."></div>
-<p>Each day is compared with the typical day of the same weekday at the same time of year, which takes the
-weekly pattern and the season out. From a dry day to a day with eight or more hours of rain, the count drops
-by {drop(findings.WORKDAY)} percentage points on workdays, but by {drop(findings.WEEKEND)} at weekends:
-commuters ride anyway, leisure trips are dropped. Temperature hardly matters once the season is taken out.</p>
-
-<h3>The data cannot be taken at face value</h3>
-<div id="chart-share" class="chart small" role="img" aria-label="Line chart of the share of trips into the city over time, with shaded outages and dashed lines at two jumps."></div>
-<p>{outage_text} The share of trips into the city also jumps twice and stays on the new level
-(dashed lines), probably after maintenance at the counting site. Since October 2025 the site counts about
-40% more than before, more than the season explains. Counts from different periods are therefore not fully
-comparable, and the model gets the measurement period as a feature. In May 2026 the inbound channel slowly
-lost about a third of its trips while the outbound channel counted as usual, until it recovered overnight on
-3 June. These four weeks are marked as faulty by hand and left out (the gap in the line).</p>
-"""
-    charts = {
-        "weekday": lambda t: findings.weekday_chart(findings.weekday_profile(daily), t),
-        "month": lambda t: findings.month_chart(month, t),
-        "rain": lambda t: findings.rain_chart(findings.rain_effect(daily, weather), t),
-        "share": lambda t: findings.share_chart(share, outages, t),
-    }
-    specs = {name: {t: themed_spec(make(t), t) for t in THEMES} for name, make in charts.items()}
+    """HTML of the key findings and the specs of their charts (per theme)."""
+    items = findings.key_findings(daily, weather)
+    html = "\n".join(
+        f"<h3>{escape(item.title)}</h3>\n"
+        f'<div id="chart-{item.name}" class="chart small" role="img" '
+        f'aria-label="{escape(item.description)}"></div>\n'
+        f"<p>{escape(item.text)}</p>\n"
+        for item in items
+    )
+    specs = {item.name: {t: themed_spec(item.chart(t), t) for t in THEMES} for item in items}
     return html, specs
 
 
@@ -251,17 +198,29 @@ def render_page(
     )
 
 
-def write_sites_data(sites_daily: pd.DataFrame, site_dir: Path = SITE_DIR) -> Path:
-    """Save the daily counts of all sites (load_all_sites) next to the page.
+def write_data(table: pd.DataFrame, path: Path, site_dir: Path = SITE_DIR) -> Path:
+    """Save table as Parquet at path inside site_dir, next to the page.
 
-    GitHub Pages publishes them with the page, without a commit, so the
-    repository history does not grow every day. The Streamlit page reads them
-    from there instead of downloading 1,500 monthly files.
+    GitHub Pages publishes it with the page, without a commit, so the
+    repository history does not grow every day. The Streamlit app reads it
+    from there (read_published) instead of downloading hundreds of monthly
+    files from the city.
     """
-    path = site_dir / SITES_DATA
-    path.parent.mkdir(parents=True, exist_ok=True)
-    sites_daily.to_parquet(path, index=False)
-    return path
+    target = site_dir / path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    table.to_parquet(target)
+    return target
+
+
+def read_published(path: Path, site_dir: Path = SITE_DIR) -> pd.DataFrame:
+    """A data file published by write_data: from GitHub Pages or, if that
+    cannot be reached, from site_dir, where the last local run wrote it."""
+    try:
+        response = requests.get(PAGES_URL + path.as_posix(), timeout=30)
+        response.raise_for_status()
+        return pd.read_parquet(BytesIO(response.content))
+    except requests.RequestException:
+        return pd.read_parquet(site_dir / path)
 
 
 def write_site(html: str, site_dir: Path = SITE_DIR) -> Path:

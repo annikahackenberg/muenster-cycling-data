@@ -1,11 +1,15 @@
 """Key findings of the exploratory analysis, recomputed from the current data.
 
 The same methods as in notebooks/01_exploratory_analysis.ipynb, as functions
-that return small tables, plus one Altair chart per finding for the static
-page. Only complete days are used.
+that return small tables, plus one Altair chart per finding. key_findings
+puts them together with their texts, for the static page and the Streamlit
+app alike. Only complete days are used.
 """
 
 from __future__ import annotations
+
+from collections.abc import Callable
+from dataclasses import dataclass
 
 import altair as alt
 import numpy as np
@@ -198,11 +202,20 @@ def share_chart(share: pd.DataFrame, outages: pd.DataFrame, theme: str) -> alt.L
     """Inbound share over time, with unflagged outages as shaded bands and
     the starts of the measurement periods as labelled rules."""
     color = SERIES_COLORS[theme][next(iter(SERIES_COLORS[theme]))]
+    first, last = share["date"].min().year, share["date"].max().year
+    # Each year is labelled in its middle (1 July) and separated from the next
+    # by a thin line on 1 January; axis labels alone would sit on the boundary
+    mid_years = [pd.Timestamp(year, 7, 1).isoformat() for year in range(first, last + 1)]
+    year_starts = pd.DataFrame({"date": [pd.Timestamp(year, 1, 1) for year in range(first + 1, last + 1)]})
     line = (
         alt.Chart(share)
         .mark_line(color=color, strokeWidth=2, invalid="break-paths-show-domains")
         .encode(
-            x=alt.X("date:T", title=None, axis=alt.Axis(format="%Y", grid=False, tickCount="year")),
+            x=alt.X(
+                "date:T",
+                title=None,
+                axis=alt.Axis(format="%Y", values=mid_years, grid=False, ticks=False),
+            ),
             y=alt.Y("share:Q", title="Share of trips into the city", scale=alt.Scale(domain=[0.3, 0.7])),
             tooltip=[
                 alt.Tooltip("date:T", title="Date", format="%d %b %Y"),
@@ -232,4 +245,127 @@ def share_chart(share: pd.DataFrame, outages: pd.DataFrame, theme: str) -> alt.L
         .mark_text(align="right", dx=-4, dy=4, baseline="top", color="gray")
         .encode(x="date:T", y=alt.value(0), text="label:N")
     )
-    return alt.layer(bands, line, rules, labels).properties(height=CHART_HEIGHT)
+    years = alt.Chart(year_starts).mark_rule(color="gray", opacity=0.3).encode(x="date:T")
+    return alt.layer(years, bands, line, rules, labels).properties(height=CHART_HEIGHT)
+
+
+@dataclass(frozen=True)
+class Finding:
+    """One key finding: a title, a chart and a text about it.
+
+    name         short id, e.g. for the chart element on the static page
+    text         plain text; its numbers come from the current data
+    description  what the chart shows, for screen readers
+    chart        the chart for a theme ("light" or "dark")
+    width        share of the page width the chart needs on a wide screen:
+                 a few bars look lost across the full width
+    """
+
+    name: str
+    title: str
+    text: str
+    description: str
+    chart: Callable[[str], alt.TopLevelMixin]
+    width: float = 1.0
+
+
+def _percent(factor: float) -> str:
+    """0.41 -> "41%"."""
+    return f"{factor:.0%}"
+
+
+def key_findings(daily: pd.DataFrame, weather: pd.DataFrame) -> list[Finding]:
+    """The key findings, computed from daily (to_daily) and weather
+    (load_weather), so that the numbers in the texts match the charts."""
+    weekday = weekday_profile(daily)
+    by_weekday = weekday.set_index("weekday")["factor"]
+    month = month_profile(daily)
+    by_month = month.set_index("month")["factor"]
+    busiest = by_month.nlargest(2)
+    effect = rain_effect(daily, weather)
+    rain = effect.set_index(["day_type", "rain"])["factor"]
+    outages = unflagged_outages(daily)
+    share = inbound_share(daily)
+
+    def drop(day_type: str) -> str:
+        # Difference between a dry day and a day with 8+ hours of rain
+        return f"{(rain[(day_type, 'Dry')] - rain[(day_type, '8+ h')]) * 100:.0f}"
+
+    if outages.empty:
+        outage_text = (
+            "The city marks faults in a status column; outages it misses are found by comparing the "
+            "two directions."
+        )
+    else:
+        starts = " and ".join(f"{row.start:%B %Y} ({row.days} days)" for row in outages.itertuples())
+        outage_text = (
+            f"The city marks faults in a status column, but it missed the longest outages: from {starts} "
+            "one direction counted nothing while the status said OK (grey bands). They are found by "
+            "comparing the two directions."
+        )
+    years = ", ".join(map(str, month.attrs["years"]))
+    return [
+        Finding(
+            name="weekday",
+            title="The weekday matters most",
+            text=(
+                f"On Sundays about {_percent(by_weekday['Sun'])} as many people cycle as on an average "
+                f"workday, on Saturdays {_percent(by_weekday['Sat'])}. Wednesday is the busiest day "
+                f"({_percent(by_weekday['Wed'])}); Wednesday and Saturday are market days on the "
+                "Domplatz, which may explain it (a hypothesis, not checked)."
+            ),
+            description="Bar chart of the median count per weekday relative to an average workday.",
+            chart=lambda theme: weekday_chart(weekday, theme),
+            width=0.5,
+        ),
+        Finding(
+            name="month",
+            title="The season matters less",
+            text=(
+                f"January and December reach {_percent(by_month['Jan'])} and "
+                f"{_percent(by_month['Dec'])} of the annual mean, {busiest.index[0]} and "
+                f"{busiest.index[1]} {_percent(busiest.iloc[0])}. April dips: Easter, school holidays "
+                "and the lecture-free period of the university fall into it. Median over the full "
+                f"years {years}."
+            ),
+            description="Bar chart of the typical monthly mean relative to the annual mean.",
+            chart=lambda theme: month_chart(month, theme),
+            width=0.75,
+        ),
+        Finding(
+            name="rain",
+            title="Rain keeps leisure cyclists at home",
+            text=(
+                "Each day is compared with the typical day of the same weekday at the same time of "
+                "year, which takes the weekly pattern and the season out. From a dry day to a day with "
+                f"eight or more hours of rain, the count drops by {drop(WORKDAY)} percentage points on "
+                f"workdays, but by {drop(WEEKEND)} at weekends: commuters ride anyway, leisure trips "
+                "are dropped. Temperature hardly matters once the season is taken out."
+            ),
+            description=(
+                "Grouped bar chart of the count relative to a typical day by hours of rain, for "
+                "workdays and weekends."
+            ),
+            chart=lambda theme: rain_chart(effect, theme),
+            width=0.6,
+        ),
+        Finding(
+            name="share",
+            title="The data cannot be taken at face value",
+            text=(
+                f"{outage_text} The share of trips into the city also jumps twice and stays on the new "
+                "level (dashed lines), probably after maintenance at the counting site. Since October "
+                "2025 the site counts about 40% more than before, more than the season explains. "
+                "Counts from different periods are therefore not fully comparable, and the model gets "
+                "the measurement period as a feature. In May 2026 the inbound channel slowly lost "
+                "about a third of its trips while the outbound channel counted as usual, until it "
+                "recovered overnight on 3 June. These four weeks are marked as faulty by hand and left "
+                "out (the gap in the line)."
+            ),
+            description=(
+                "Line chart of the share of trips into the city over time, with shaded outages and "
+                "dashed lines at two jumps."
+            ),
+            chart=lambda theme: share_chart(share, outages, theme),
+        ),
+    ]

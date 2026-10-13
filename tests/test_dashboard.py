@@ -8,9 +8,12 @@ from radmuenster.dashboard import (
     COUNTED,
     FORECAST,
     chart_data,
+    day_notes,
     forecast_accuracy,
+    forecast_context,
     is_stale,
     latest_forecast,
+    weather_metrics,
 )
 
 
@@ -59,3 +62,50 @@ def test_forecast_accuracy_on_complete_days():
 def test_forecast_accuracy_without_evaluated_days():
     accuracy = forecast_accuracy(make_log(["2026-10-13"], [7000.0]), make_daily())
     assert accuracy["n"] == 0 and np.isnan(accuracy["wape"])
+
+
+def test_forecast_context_uses_regular_days_only():
+    # Five Wednesdays before the forecast date 2026-10-14
+    dates = pd.date_range("2026-09-09", "2026-10-12", freq="D", name="date")
+    daily = pd.DataFrame({"count": 5000.0, "complete": True}, index=dates)
+    daily.loc["2026-10-07", "count"] = 7000.0  # last week
+    daily.loc["2026-09-30", "complete"] = False  # an outage two weeks before
+    forecast = pd.Series({"forecast_date": pd.Timestamp("2026-10-14")})
+    context = forecast_context(forecast, daily)
+    assert context["last_week"] == 7000.0
+    # Mean of 7 October, 23 and 16 September; the outage is left out
+    assert context["typical"] == pytest.approx((7000 + 5000 + 5000) / 3)
+
+
+def test_forecast_context_after_a_holiday_is_unknown():
+    # The same weekday one week before is German Unity Day, no regular day
+    dates = pd.date_range("2026-09-25", "2026-10-08", freq="D", name="date")
+    daily = pd.DataFrame({"count": 5000.0, "complete": True}, index=dates)
+    forecast = pd.Series({"forecast_date": pd.Timestamp("2026-10-10")})
+    assert forecast_context(forecast, daily)["last_week"] is None
+
+
+def test_weather_metrics_show_snow_only_when_forecast():
+    forecast = pd.Series(
+        {"temp_max": 3.4, "precipitation": 2.3, "precipitation_hours": 5.0,
+         "sunshine": 1.2, "wind_max": 18.0, "snowfall": 0.0}
+    )
+    metrics = weather_metrics(forecast)
+    assert metrics["Rain (2.3 mm)"] == "5 h"
+    assert "Snow" not in metrics
+    forecast["snowfall"] = 1.5
+    assert weather_metrics(forecast)["Snow"] == "1.5 cm"
+
+
+@pytest.mark.parametrize(
+    ("day", "expected"),
+    [
+        ("2026-10-14", []),
+        ("2026-10-03", ["Public holiday: German Unity Day", "No lectures at the university"]),
+        ("2026-05-15", ["Bridge day between two days off, many people take it off"]),
+        ("2026-08-10", ["School holidays in NRW", "No lectures at the university"]),
+    ],
+    ids=["regular", "holiday", "bridge_day", "summer"],
+)
+def test_day_notes(day, expected):
+    assert day_notes(pd.Timestamp(day)) == expected

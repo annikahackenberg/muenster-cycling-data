@@ -11,6 +11,9 @@ import altair as alt
 import numpy as np
 import pandas as pd
 
+from holidays import Germany
+
+from radmuenster.features import SUBDIVISION, academic_features, calendar_features, lag_features
 from radmuenster.monitoring import evaluate_forecasts
 
 COUNTED = "Counted"
@@ -85,6 +88,64 @@ def weather_summary(forecast: pd.Series) -> str:
         f"over {forecast['precipitation_hours']:.0f} h · {forecast['sunshine']:.0f} h sun · "
         f"wind up to {forecast['wind_max']:.0f} km/h"
     )
+
+
+def weather_metrics(forecast: pd.Series) -> dict[str, str]:
+    """The forecast weather of a row of the forecast log, one short value
+    per label (they are shown large, side by side). Rain as hours, which
+    matter more for cycling than the amount; the amount goes into the label.
+    Snow only appears when some is forecast."""
+    metrics = {
+        "Max temperature": f"{forecast['temp_max']:.0f} °C",
+        f"Rain ({forecast['precipitation']:.1f} mm)": f"{forecast['precipitation_hours']:.0f} h",
+        "Sunshine": f"{forecast['sunshine']:.0f} h",
+        "Max wind": f"{forecast['wind_max']:.0f} km/h",
+    }
+    if forecast["snowfall"] > 0:
+        metrics["Snow"] = f"{forecast['snowfall']:.1f} cm"
+    return metrics
+
+
+def forecast_context(forecast: pd.Series, daily: pd.DataFrame) -> dict[str, float | None]:
+    """Counts that put the forecast into context.
+
+    last_week  count on the same weekday one week before the forecast date
+    typical    mean of the same weekday one to four weeks before
+
+    Both come from lag_features, as in the model: incomplete days and special
+    days off (public holidays, bridge days, ...) are left out, so both
+    describe a regular day. None where no such day is known.
+    """
+    dates = pd.DatetimeIndex([forecast["forecast_date"]])
+    lags = lag_features(daily, dates).iloc[0]
+    columns = {"last_week": "lag_7", "typical": "same_weekday_4w"}
+    return {key: None if pd.isna(lags[col]) else float(lags[col]) for key, col in columns.items()}
+
+
+def day_notes(day: pd.Timestamp) -> list[str]:
+    """What sets the day apart for cycling, from the calendar the model uses.
+
+    Empty for a regular day: no public holiday, no school holidays, lectures
+    at the university.
+    """
+    dates = pd.DatetimeIndex([day]).normalize()
+    calendar = calendar_features(dates).iloc[0]
+    academic = academic_features(dates).iloc[0]
+    notes = []
+    if calendar["is_holiday"]:
+        names = Germany(subdiv=SUBDIVISION, years=day.year, language="en_US")
+        notes.append(f"Public holiday: {names.get(dates[0].date())}")
+    if calendar["is_bridge_day"]:
+        notes.append("Bridge day between two days off, many people take it off")
+    if calendar["is_christmas"]:
+        notes.append("Between Christmas and New Year, many people are off work")
+    if calendar["is_rosenmontag"]:
+        notes.append("Rosenmontag (carnival Monday)")
+    if academic["is_school_holiday"]:
+        notes.append("School holidays in NRW")
+    if not academic["is_lecture_period"]:
+        notes.append("No lectures at the university")
+    return notes
 
 
 def counts_chart(data: pd.DataFrame, theme: str, surface: str) -> alt.LayerChart:

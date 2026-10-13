@@ -13,10 +13,12 @@ import streamlit as st
 from radmuenster.dashboard import (
     chart_data,
     counts_chart,
+    day_notes,
     forecast_accuracy,
+    forecast_context,
     is_stale,
     latest_forecast,
-    weather_summary,
+    weather_metrics,
 )
 from radmuenster.data import DEFAULT_SITE, load_intervals, to_daily
 from radmuenster.forecast import FORECAST_FILE, read_forecasts, today_in_muenster
@@ -66,6 +68,11 @@ theme = st.context.theme.type or "light"
 today = today_in_muenster()
 
 st.title("Bicycle traffic forecast")
+st.write(
+    "A daily forecast of bicycle traffic in Münster, built end to end from the city's open "
+    "counting data: data cleaning, analysis, a machine learning model and an automated pipeline "
+    "that updates this page every evening."
+)
 st.caption("Counting site Warendorfer Straße, Münster · trips per day, both directions")
 
 log = load_forecast_log()
@@ -76,11 +83,50 @@ if is_stale(forecast, today):
         f"{forecast['made_on']:%d %B %Y}."
     )
 
-st.metric(f"Forecast for {forecast['forecast_date']:%A, %d %B %Y}", f"{forecast['prediction']:,}")
-st.caption(f"Weather forecast: {weather_summary(forecast)}")
-
 start = today - timedelta(weeks=CHART_WEEKS)
 daily = load_recent_counts(start)
+day = forecast["forecast_date"]
+weekday = f"{day:%A}"
+context = forecast_context(forecast, daily)
+
+
+def trips(value: float | None) -> str:
+    return "–" if value is None else f"{value:,.0f}"
+
+
+st.subheader(f"{day:%A, %d %B %Y}")
+cols = st.columns(3)
+delta = None
+if context["typical"] is not None:
+    delta = f"{forecast['prediction'] / context['typical'] - 1:+.0%} vs. typical"
+# delta_color="off": more or fewer trips is neither good nor bad
+cols[0].metric("Forecast", f"{forecast['prediction']:,}", delta=delta, delta_color="off")
+cols[1].metric(
+    f"Last {weekday}", trips(context["last_week"]),
+    help="Counted trips one week earlier. Empty if that day was a public holiday or incomplete.",
+)
+cols[2].metric(
+    f"Typical {weekday}", trips(context["typical"]),
+    help=(
+        "Mean of the same weekday over the four weeks before, without public holidays and "
+        "incomplete days."
+    ),
+)
+
+st.markdown("**Weather forecast**")
+metrics = weather_metrics(forecast)
+for col, (label, value) in zip(st.columns(len(metrics)), metrics.items()):
+    col.metric(label, value)
+
+notes = day_notes(day)
+if notes:
+    st.markdown("**Calendar:** " + " · ".join(notes))
+else:
+    st.markdown(
+        "**Calendar:** a regular day: no public holiday, no school holidays, lectures at the "
+        "university."
+    )
+
 st.subheader(f"The last {CHART_WEEKS} weeks")
 data = chart_data(daily, log, start)
 st.altair_chart(counts_chart(data, theme, SURFACE[theme]), width="stretch")

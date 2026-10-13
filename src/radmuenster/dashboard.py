@@ -26,6 +26,44 @@ SERIES_COLORS = {
 }
 
 
+# Time-based cross-validation (notebook 02), 1,232 test days 2023 to 2026:
+# (model, MAE in trips, WAPE). Update by hand when the model changes, as the
+# table in the README.
+CV_RESULTS = (
+    ("Naive baseline (same weekday last week)", 960, 0.161),
+    ("Holiday baseline", 848, 0.143),
+    ("Linear regression on log(count)", 646, 0.109),
+    ("LightGBM on log(count)", 529, 0.089),
+)
+
+# From the city's counts to the forecast, as (step, explanation), for both
+# the static page and the Streamlit app
+HOW_IT_WORKS = (
+    (
+        "Data",
+        "the City of Münster publishes 15-minute counts every morning. They are summed to daily "
+        "totals; outages that the city's status misses are detected by comparing the two directions.",
+    ),
+    (
+        "Features",
+        "weekday, public holidays and bridge days in NRW, lecture periods of the University of "
+        "Münster, school holidays, weather, and counts from 2, 7, 14 and 364 days earlier. Lag 1 is "
+        "left out on purpose: when the forecast is made, today is not over yet.",
+    ),
+    (
+        "Model",
+        "gradient-boosted trees (LightGBM) on the logarithm of the count, retrained every evening "
+        "on all complete days since 2019.",
+    ),
+    (
+        "Automation",
+        "a scheduled GitHub Actions workflow forecasts tomorrow every evening, runs the monitoring "
+        "and stores the forecast with its weather forecast, which both the static page and the "
+        "app show.",
+    ),
+)
+
+
 def latest_forecast(log: pd.DataFrame) -> pd.Series:
     """The forecast with the latest forecast_date."""
     return log.loc[log["forecast_date"].idxmax()]

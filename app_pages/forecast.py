@@ -11,6 +11,8 @@ import pandas as pd
 import streamlit as st
 
 from radmuenster.dashboard import (
+    CV_RESULTS,
+    HOW_IT_WORKS,
     chart_data,
     counts_chart,
     day_notes,
@@ -146,7 +148,7 @@ if accuracy["n"] < 7:
     st.write(
         f"The daily forecast started recently; {accuracy['n']} forecast day(s) can be checked "
         "so far. In the time-based cross-validation (2023 to 2026, measured weather), the model "
-        "was off by 8.9 % on average (WAPE)."
+        f"was off by {CV_RESULTS[-1][2]:.1%} on average (WAPE)."
     )
 else:
     cols = st.columns(3)
@@ -166,17 +168,23 @@ if status["warnings"]:
 else:
     st.success(f"All checks passed on {status['checked_on']}.", icon="✅")
 
-with st.expander("About"):
-    st.markdown(
-        f"""
-Every evening a scheduled job trains a LightGBM model on all counts since 2019 and forecasts the
-next day, using the calendar (weekday, public holidays, university lecture periods, school
-holidays), recent counts and the weather forecast. It also checks the data for outages and for
-changes at the counting site. Code, analysis and model comparison: [GitHub]({REPO_URL}).
-
-Data: bicycle counts by the [City of Münster](https://github.com/od-ms/radverkehr-zaehlstellen),
-license [Datenlizenz Deutschland Namensnennung 2.0](https://www.govdata.de/dl-de/by-2-0).
-Weather: [Open-Meteo](https://open-meteo.com),
-license [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
-"""
-    )
+st.subheader("How it works")
+st.markdown("\n".join(f"{i}. **{step}:** {text}" for i, (step, text) in enumerate(HOW_IT_WORKS, 1)))
+st.markdown(
+    "**Model comparison** in a time-based cross-validation: each quarter from 2023 on is forecast "
+    "by a model trained on all days before it, with the measured weather of the forecast day. The "
+    "daily forecast only has a weather forecast, so its error will be somewhat higher."
+)
+st.dataframe(
+    pd.DataFrame(CV_RESULTS, columns=["Model", "Mean error (trips)", "WAPE"]).style.format(
+        {"Mean error (trips)": "{:,}", "WAPE": "{:.1%}"}
+    ),
+    hide_index=True,
+)
+st.caption(
+    f"Code, analysis and model comparison: [GitHub]({REPO_URL}). "
+    "Data: bicycle counts by the [City of Münster](https://github.com/od-ms/radverkehr-zaehlstellen), "
+    "license [Datenlizenz Deutschland Namensnennung 2.0](https://www.govdata.de/dl-de/by-2-0). "
+    "Weather: [Open-Meteo](https://open-meteo.com), "
+    "license [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)."
+)

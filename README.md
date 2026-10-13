@@ -172,6 +172,11 @@ by [findings.py](src/radmuenster/findings.py).
 3. [x] Models: naive and holiday baseline, linear regression, LightGBM with time-based cross-validation
 4. [x] Daily forecast: a scheduled GitHub Actions job computes tomorrow's forecast and the monitoring
    (warn when the direction share or the forecast error drifts, a sign of a new measurement jump);
-   a [Streamlit page](https://muenster-cycling-data.streamlit.app) shows the forecast and the recent weeks
-5. [ ] AI assistant: ask questions about the data in natural language (an LLM with tools that query the
+   a [Streamlit page](https://muenster-cycling-data.streamlit.app) and a
+   [static page](https://annikahackenberg.github.io/muenster-cycling-data/) show the forecast and the recent weeks
+5. [x] Key findings on the static page: weekly pattern, season, rain, data quality, recomputed every evening
+6. [x] All 23 counting sites: load them, flag suspicious days (outages, dead channels) and explore and
+   compare them in Streamlit
+7. [ ] AI assistant: ask questions about the data in natural language (an LLM with tools that query the
    counts, weather and forecasts)
+8. [ ] Later, if useful: forecasts for more counting sites

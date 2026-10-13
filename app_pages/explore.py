@@ -56,12 +56,14 @@ selected = st.multiselect(
     "Counting sites", all_sites, default=DEFAULT_SITES, max_selections=MAX_SITES,
     help=f"Up to {MAX_SITES} sites at a time, so that each keeps a distinct color.",
 )
-cols = st.columns([1.6, 1, 1.2])
+# Two columns, the toggle below: with three, the resolution had no room for
+# its three buttons side by side in a narrow window
+cols = st.columns(2)
 period = cols[0].date_input(
     "Period", value=(last_day - timedelta(days=365), last_day), min_value=first_day, max_value=last_day
 )
 resolution = cols[1].segmented_control("Resolution", list(RESOLUTIONS), default="Week")
-leave_out = cols[2].toggle(
+leave_out = st.toggle(
     "Hide flagged days", value=False,
     help="Off: the counts as published. On: flagged days are left out of the means and lines.",
 )

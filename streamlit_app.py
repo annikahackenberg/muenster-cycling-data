@@ -6,7 +6,9 @@ The pages are in app_pages/.
 
 import streamlit as st
 
-st.set_page_config(page_title="Münster bicycle traffic", page_icon="🚲")
+# Wide: the charts and the controls of the explore page need the width; the
+# default centered layout limits the content to about 730 pixels
+st.set_page_config(page_title="Münster bicycle traffic", page_icon="🚲", layout="wide")
 page = st.navigation(
     [
         st.Page("app_pages/forecast.py", title="Forecast", default=True),

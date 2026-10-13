@@ -94,8 +94,8 @@ def _findings_section(daily: pd.DataFrame, weather: pd.DataFrame) -> tuple[str, 
     items = findings.key_findings(daily, weather)
     html = "\n".join(
         f"<h3>{escape(item.title)}</h3>\n"
-        f'<div id="chart-{item.name}" class="chart small" role="img" '
-        f'aria-label="{escape(item.description)}"></div>\n'
+        f'<div id="chart-{item.name}" class="chart small" style="--chart-width: {item.width:.0%}" '
+        f'role="img" aria-label="{escape(item.description)}"></div>\n'
         f"<p>{escape(item.text)}</p>\n"
         for item in items
     )
@@ -328,6 +328,9 @@ nav a { white-space: nowrap; }
 .app-link a:hover { background: var(--grid); }
 .chart { width: 100%; min-height: 360px; }
 .chart.small { min-height: 270px; }
+/* A few bars look lost across the full width (Finding.width); on a phone
+   every chart keeps the full width */
+@media (min-width: 600px) { .chart.small { max-width: var(--chart-width, 100%); } }
 h3 { font-size: 1.05rem; margin: 28px 0 6px; }
 details { margin-top: 8px; }
 summary { cursor: pointer; color: var(--muted); }

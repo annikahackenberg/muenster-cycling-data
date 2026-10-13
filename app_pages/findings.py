@@ -42,7 +42,10 @@ st.write(
 
 for finding in key_findings(daily, weather):
     st.subheader(finding.title)
-    st.altair_chart(finding.chart(theme), width="stretch")
+    # A narrower column on wide screens; on a phone the columns stack and
+    # the chart gets the full width
+    column = st.columns([finding.width, 1 - finding.width])[0] if finding.width < 1 else st
+    column.altair_chart(finding.chart(theme), width="stretch")
     st.write(finding.text)
 
 st.caption(

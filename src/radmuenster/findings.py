@@ -206,7 +206,8 @@ def share_chart(share: pd.DataFrame, outages: pd.DataFrame, theme: str) -> alt.L
         alt.Chart(share)
         .mark_line(color=color, strokeWidth=2, invalid="break-paths-show-domains")
         .encode(
-            x=alt.X("date:T", title=None, axis=alt.Axis(format="%Y", grid=False, tickCount="year")),
+            # Grid lines at each 1 January separate the years
+            x=alt.X("date:T", title=None, axis=alt.Axis(format="%Y", grid=True, tickCount="year")),
             y=alt.Y("share:Q", title="Share of trips into the city", scale=alt.Scale(domain=[0.3, 0.7])),
             tooltip=[
                 alt.Tooltip("date:T", title="Date", format="%d %b %Y"),
@@ -247,6 +248,8 @@ class Finding:
     text         plain text; its numbers come from the current data
     description  what the chart shows, for screen readers
     chart        the chart for a theme ("light" or "dark")
+    width        share of the page width the chart needs on a wide screen:
+                 a few bars look lost across the full width
     """
 
     name: str
@@ -254,6 +257,7 @@ class Finding:
     text: str
     description: str
     chart: Callable[[str], alt.TopLevelMixin]
+    width: float = 1.0
 
 
 def _percent(factor: float) -> str:
@@ -303,6 +307,7 @@ def key_findings(daily: pd.DataFrame, weather: pd.DataFrame) -> list[Finding]:
             ),
             description="Bar chart of the median count per weekday relative to an average workday.",
             chart=lambda theme: weekday_chart(weekday, theme),
+            width=0.5,
         ),
         Finding(
             name="month",
@@ -316,6 +321,7 @@ def key_findings(daily: pd.DataFrame, weather: pd.DataFrame) -> list[Finding]:
             ),
             description="Bar chart of the typical monthly mean relative to the annual mean.",
             chart=lambda theme: month_chart(month, theme),
+            width=0.75,
         ),
         Finding(
             name="rain",
@@ -332,6 +338,7 @@ def key_findings(daily: pd.DataFrame, weather: pd.DataFrame) -> list[Finding]:
                 "workdays and weekends."
             ),
             chart=lambda theme: rain_chart(effect, theme),
+            width=0.6,
         ),
         Finding(
             name="share",

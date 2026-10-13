@@ -12,9 +12,6 @@ from datetime import date
 import altair as alt
 import pandas as pd
 
-# Daily counts of all sites, published by the daily job with the static page
-SITES_DATA_URL = "https://annikahackenberg.github.io/muenster-cycling-data/data/sites_daily.parquet"
-
 # Categorical palette (8 hues, fixed order), validated for light and dark mode
 PALETTE = {
     "light": ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948"],

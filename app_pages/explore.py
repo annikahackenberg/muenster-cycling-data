@@ -3,16 +3,13 @@
 from __future__ import annotations
 
 from datetime import timedelta
-from io import BytesIO
 
 import pandas as pd
-import requests
 import streamlit as st
 
 from radmuenster.explore import (
     MAX_SITES,
     RESOLUTIONS,
-    SITES_DATA_URL,
     aggregate,
     assign_colors,
     flagged_periods,
@@ -21,7 +18,7 @@ from radmuenster.explore import (
     select,
     sites_chart,
 )
-from radmuenster.static_page import SITE_DIR, SITES_DATA
+from radmuenster.static_page import PAGES_URL, SITES_DATA, read_published
 
 DEFAULT_SITES = ["Warendorfer Straße", "Neutor", "Wolbecker Straße"]
 
@@ -31,14 +28,8 @@ CACHE_SECONDS = 3600
 
 @st.cache_data(ttl=CACHE_SECONDS)
 def load_sites_daily() -> pd.DataFrame:
-    """Daily counts of all sites from GitHub Pages, where the daily job
-    publishes them, or the local file of the last local run."""
-    try:
-        response = requests.get(SITES_DATA_URL, timeout=30)
-        response.raise_for_status()
-        return pd.read_parquet(BytesIO(response.content))
-    except requests.RequestException:
-        return pd.read_parquet(SITE_DIR / SITES_DATA)
+    """Daily counts of all sites, published by the daily job."""
+    return read_published(SITES_DATA)
 
 
 theme = st.context.theme.type or "light"
@@ -122,5 +113,5 @@ st.caption(
 st.caption(
     "Data: bicycle counts by the [City of Münster](https://github.com/od-ms/radverkehr-zaehlstellen), "
     "license [Datenlizenz Deutschland Namensnennung 2.0](https://www.govdata.de/dl-de/by-2-0). "
-    f"Download: [sites_daily.parquet]({SITES_DATA_URL})."
+    f"Download: [sites_daily.parquet]({PAGES_URL}{SITES_DATA.as_posix()})."
 )

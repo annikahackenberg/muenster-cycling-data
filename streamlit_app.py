@@ -12,6 +12,7 @@ st.set_page_config(page_title="Münster bicycle traffic", page_icon="🚲", layo
 page = st.navigation(
     [
         st.Page("app_pages/forecast.py", title="Forecast", default=True),
+        st.Page("app_pages/findings.py", title="What the data shows"),
         st.Page("app_pages/explore.py", title="Explore all sites"),
     ]
 )

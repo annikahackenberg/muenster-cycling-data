@@ -44,10 +44,12 @@ VEGA_SCRIPTS = (
     "https://cdn.jsdelivr.net/npm/vega-embed@7.2.0",
 )
 
-# Page colors per theme; surface and text as in the validated palette
+# Page colors per theme; surfaces as in the validated palette. Dark text is an
+# off-white (contrast 12.6:1, muted 7.1:1): pure white on the dark surface
+# (17:1) glares
 THEMES = {
     "light": {"surface": "#fcfcfb", "text": "#0b0b0b", "muted": "#52514e", "grid": "#e4e3df"},
-    "dark": {"surface": "#1a1a19", "text": "#ffffff", "muted": "#c3c2b7", "grid": "#3a3a37"},
+    "dark": {"surface": "#1a1a19", "text": "#dddbd4", "muted": "#a8a69d", "grid": "#3a3a37"},
 }
 
 # Time-based cross-validation (notebook 02), 1,232 test days 2023 to 2026

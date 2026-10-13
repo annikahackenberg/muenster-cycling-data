@@ -146,7 +146,7 @@ last week and a typical one, the weather forecast it is based on, what sets the 
 (public holiday, school holidays, no lectures), the counts and forecasts of the last eight weeks, the error of the logged forecasts and the monitoring
 status. It reads the forecast log from `main` on GitHub, so it shows a new forecast without redeploying,
 and loads the recent counts directly from the city. If the daily job is switched off, the page says so
-and keeps showing the latest forecast. [What the data shows](app_pages/findings.py) shows the key findings
+and keeps showing the latest forecast. [Insights](app_pages/findings.py) shows the key findings
 of the exploratory analysis, the same as on the static page. [Explore all sites](app_pages/explore.py) shows the daily counts of
 all 23 counting sites of the city as published: compare sites over any period by day, week or month, see
 which periods are flagged and why, and which sites are busiest. On Streamlit Community Cloud the app is

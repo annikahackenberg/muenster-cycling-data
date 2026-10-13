@@ -1,4 +1,4 @@
-"""Findings page: what the counts at the Warendorfer Straße show."""
+"""Insights page: the key findings from the counts at the Warendorfer Straße."""
 
 from __future__ import annotations
 
@@ -28,11 +28,11 @@ try:
 except FileNotFoundError:
     # Neither on GitHub Pages nor from a local run, e.g. right after this
     # page was added and before the next daily job
-    st.title("What the data shows")
+    st.title("Insights")
     st.info("The findings appear after the next daily run this evening.")
     st.stop()
 
-st.title("What the data shows")
+st.title("Insights")
 st.write(
     f"Key findings from the counts at the Warendorfer Straße since {daily.index.min():%B %Y}, "
     "recomputed every evening from all data, so the numbers stay current. They explain what the "

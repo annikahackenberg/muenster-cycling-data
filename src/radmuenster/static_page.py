@@ -300,7 +300,7 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--grid);
 data: data cleaning, analysis, a machine learning model and an automated pipeline that updates this page
 every evening.</p>
 <nav aria-label="Sections">
-  <a href="#forecast">Forecast</a> · <a href="#findings">What the data shows</a> ·
+  <a href="#forecast">Forecast</a> · <a href="#findings">Insights</a> ·
   <a href="#accuracy">Accuracy</a> · <a href="#monitoring">Monitoring</a> · <a href="#how">How it works</a>
 </nav>
 
@@ -325,7 +325,7 @@ $table_rows
   </table>
 </details>
 
-<h2 id="findings">What the data shows</h2>
+<h2 id="findings">Insights</h2>
 <p class="note">Key findings of the exploratory analysis, recomputed every evening from all complete days since 2019.</p>
 $findings
 

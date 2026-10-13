@@ -28,10 +28,12 @@ from radmuenster.dashboard import (
     HOW_IT_WORKS,
     chart_data,
     counts_chart,
+    day_notes,
     forecast_accuracy,
+    forecast_context,
     is_stale,
     latest_forecast,
-    weather_summary,
+    weather_metrics,
 )
 
 SITE_DIR = Path("site")
@@ -138,6 +140,52 @@ def _accuracy_section(log: pd.DataFrame, daily: pd.DataFrame) -> str:
 weather forecast, so this is the honest error of the daily forecast.</p>"""
 
 
+def _tile(label: str, value: str, unit: str = "") -> str:
+    unit_html = f'<div class="unit">{escape(unit)}</div>' if unit else ""
+    return (
+        f'  <div class="tile"><div class="label">{escape(label)}</div>'
+        f'<div class="value">{escape(value)}</div>{unit_html}</div>'
+    )
+
+
+def _context_section(forecast: pd.Series, daily: pd.DataFrame) -> tuple[str, str]:
+    """The forecast in context, as on the forecast page of the app: the
+    deviation from a typical day (after the number), and the tiles for the
+    same weekday, the weather and the calendar (below it)."""
+    weekday = f"{forecast['forecast_date']:%A}"
+    context = forecast_context(forecast, daily)
+
+    def trips(value: float | None) -> str:
+        return "–" if value is None else f"{value:,.0f}"
+
+    delta = ""
+    if context["typical"] is not None:
+        change = forecast["prediction"] / context["typical"] - 1
+        delta = f" · {abs(change):.0%} {'more' if change >= 0 else 'fewer'} than a typical {weekday}"
+    days = "\n".join(
+        [
+            _tile(f"Last {weekday}", trips(context["last_week"]), "counted trips"),
+            _tile(f"Typical {weekday}", trips(context["typical"]), "mean of the four weeks before"),
+        ]
+    )
+    weather = "\n".join(_tile(label, value) for label, value in weather_metrics(forecast).items())
+    notes = day_notes(forecast["forecast_date"])
+    calendar = (
+        " · ".join(notes)
+        if notes
+        else "a regular day: no public holiday, no school holidays, lectures at the university."
+    )
+    html = f"""<div class="tiles">
+{days}
+</div>
+<h3>Weather forecast</h3>
+<div class="tiles">
+{weather}
+</div>
+<p><strong>Calendar:</strong> {escape(calendar)}</p>"""
+    return delta, html
+
+
 def _monitoring_section(warnings: list[str], today: date) -> str:
     if not warnings:
         return f'<p class="status ok"><span aria-hidden="true">✓</span> All checks passed on {today:%d %B %Y}.</p>'
@@ -167,6 +215,7 @@ def render_page(
             '<p class="status warn">The daily forecast is paused. This is the latest forecast, '
             f"made on {forecast['made_on']:%d %B %Y}.</p>"
         )
+    delta, context = _context_section(forecast, daily)
     findings_html, specs = _findings_section(daily, weather)
     specs["counts"] = {
         t: themed_spec(counts_chart(data, t, THEMES[t]["surface"]), t) for t in THEMES
@@ -177,7 +226,8 @@ def render_page(
     return PAGE.substitute(
         forecast_day=f"{forecast['forecast_date']:%A, %d %B %Y}",
         prediction=f"{forecast['prediction']:,}",
-        weather=escape(weather_summary(forecast)),
+        delta=escape(delta),
+        context=context,
         made_on=f"{forecast['made_on']:%d %B %Y}",
         stale=stale,
         weeks=CHART_WEEKS,
@@ -269,7 +319,13 @@ nav a { white-space: nowrap; }
 .note { font-size: 0.9rem; }
 .hero .label { font-size: 0.95rem; }
 .hero .value { font-size: 3rem; font-weight: 650; line-height: 1.1; font-variant-numeric: tabular-nums; }
-.hero .unit { margin-bottom: 4px; }
+.hero > .unit { margin-bottom: 16px; }
+.app-link { margin: -16px 0 32px; color: var(--muted); }
+.app-link a {
+  display: inline-block; margin-right: 4px; padding: 6px 14px; border: 1px solid var(--text);
+  border-radius: 8px; color: var(--text); font-weight: 600; text-decoration: none;
+}
+.app-link a:hover { background: var(--grid); }
 .chart { width: 100%; min-height: 360px; }
 .chart.small { min-height: 270px; }
 h3 { font-size: 1.05rem; margin: 28px 0 6px; }
@@ -303,13 +359,16 @@ every evening.</p>
   <a href="#forecast">Forecast</a> · <a href="#findings">Insights</a> ·
   <a href="#accuracy">Accuracy</a> · <a href="#monitoring">Monitoring</a> · <a href="#how">How it works</a>
 </nav>
+<p class="app-link"><a href="$streamlit">Open the interactive app</a> to explore and compare all 23
+counting sites of the city (it may take a moment to wake up).</p>
 
 $stale
 <section class="hero" id="forecast">
   <div class="label">Forecast for $forecast_day</div>
   <div class="value">$prediction</div>
-  <div class="unit">bicycle trips</div>
-  <p class="note">Weather forecast: $weather. Made on $made_on, updated every evening.</p>
+  <div class="unit">bicycle trips$delta</div>
+$context
+  <p class="note">Made on $made_on, updated every evening.</p>
 </section>
 
 <h2>The last $weeks weeks</h2>

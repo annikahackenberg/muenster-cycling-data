@@ -164,11 +164,11 @@ def _bar_chart(data: pd.DataFrame, x: str, order: list[str], theme: str, title: 
 
 
 def weekday_chart(profile: pd.DataFrame, theme: str) -> alt.LayerChart:
-    return _bar_chart(profile, "weekday", WEEKDAYS, theme, "Relative to an average workday")
+    return _bar_chart(profile, "weekday", WEEKDAYS, theme, "vs. average workday")
 
 
 def month_chart(profile: pd.DataFrame, theme: str) -> alt.LayerChart:
-    return _bar_chart(profile, "month", MONTHS, theme, "Relative to the annual mean")
+    return _bar_chart(profile, "month", MONTHS, theme, "vs. annual mean")
 
 
 def rain_chart(effect: pd.DataFrame, theme: str) -> alt.LayerChart:
@@ -180,7 +180,7 @@ def rain_chart(effect: pd.DataFrame, theme: str) -> alt.LayerChart:
         .encode(
             x=alt.X("rain:N", sort=RAIN_LABELS, title="Hours of rain", axis=alt.Axis(labelAngle=0)),
             xOffset=alt.XOffset("day_type:N", sort=[WORKDAY, WEEKEND]),
-            y=alt.Y("factor:Q", title="Relative to a typical day", scale=alt.Scale(zero=True)),
+            y=alt.Y("factor:Q", title="vs. typical day", scale=alt.Scale(zero=True)),
             color=alt.Color(
                 "day_type:N",
                 scale=alt.Scale(domain=[WORKDAY, WEEKEND], range=colors),

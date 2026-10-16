@@ -30,6 +30,12 @@ DAY_LIMIT_TEXT = "The assistant has answered as many questions as it can today. 
 
 logger = logging.getLogger(__name__)
 
+# Streamlit's chat input has no visible border and looks like a hint; a grey
+# that works on both themes makes it look like a field to type in
+INPUT_STYLE = """<style>
+[data-testid="stChatInput"] > div { border: 2px solid rgba(128, 128, 128, 0.7); }
+</style>"""
+
 
 @st.cache_data(ttl=CACHE_SECONDS)
 def load_data(today: date) -> AssistantData:
@@ -108,6 +114,7 @@ def answer_question(client: anthropic.Anthropic, data: AssistantData, question: 
     st.rerun()
 
 
+st.html(INPUT_STYLE)
 st.title("Leeze AI")
 st.write(
     "An AI chat about Münster's bicycle traffic (*Leeze* is Münster dialect for bicycle): the "
@@ -142,7 +149,7 @@ if limit.remaining(today) <= 0:
     st.info(DAY_LIMIT_TEXT)
     st.stop()
 
-question = st.chat_input("Ask a question about cycling in Münster", max_chars=MAX_QUESTION_CHARS)
+question = st.chat_input("Type your own question here …", max_chars=MAX_QUESTION_CHARS)
 if not st.session_state.chat:
     st.write("Or try one of these:")
     for example in EXAMPLES:

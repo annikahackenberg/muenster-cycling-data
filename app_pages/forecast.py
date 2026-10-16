@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import json
 from datetime import timedelta
-from urllib.error import URLError
-from urllib.request import urlopen
 
 import pandas as pd
 import streamlit as st
@@ -23,14 +20,13 @@ from radmuenster.dashboard import (
     weather_metrics,
 )
 from radmuenster.data import DEFAULT_SITE, load_intervals, to_daily
-from radmuenster.forecast import FORECAST_FILE, read_forecasts, today_in_muenster
-from radmuenster.monitoring import STATUS_FILE
+from radmuenster.forecast import today_in_muenster
+from radmuenster.published import read_forecast_log, read_status
 
 REPO_URL = "https://github.com/annikahackenberg/muenster-cycling-data"
-# The daily job commits to main; reading from there gets the latest forecast
-# without redeploying the page
-RAW_URL = "https://raw.githubusercontent.com/annikahackenberg/muenster-cycling-data/main/"
 CHART_WEEKS = 8
+# Width of a metric in pixels: two fit next to each other on a phone
+METRIC_WIDTH = 160
 
 # The app's background (dark: backgroundColor in .streamlit/config.toml), for
 # the ring that separates markers from the line
@@ -42,22 +38,12 @@ CACHE_SECONDS = 3600
 
 @st.cache_data(ttl=CACHE_SECONDS)
 def load_forecast_log() -> pd.DataFrame:
-    """The forecast log from main on GitHub, or the local file if it is not
-    reachable (e.g. before the first merge)."""
-    try:
-        return read_forecasts(RAW_URL + FORECAST_FILE.as_posix())
-    except URLError:
-        return read_forecasts(FORECAST_FILE)
+    return read_forecast_log()
 
 
 @st.cache_data(ttl=CACHE_SECONDS)
 def load_status() -> dict:
-    """The warnings of the latest monitoring run, like load_forecast_log."""
-    try:
-        with urlopen(RAW_URL + STATUS_FILE.as_posix(), timeout=10) as response:
-            return json.load(response)
-    except URLError:
-        return json.loads(STATUS_FILE.read_text(encoding="utf-8"))
+    return read_status()
 
 
 @st.cache_data(ttl=CACHE_SECONDS)
@@ -96,19 +82,28 @@ def trips(value: float | None) -> str:
     return "–" if value is None else f"{value:,.0f}"
 
 
+def metric_row():
+    """A row for metrics of fixed width that wraps when there is no space.
+    st.columns would spread them over the whole screen (layout="wide") and
+    put each in a line of its own on a phone."""
+    return st.container(horizontal=True)
+
+
 st.subheader(f"{day:%A, %d %B %Y}")
-cols = st.columns(3)
+row = metric_row()
 delta = None
 if context["typical"] is not None:
     delta = f"{forecast['prediction'] / context['typical'] - 1:+.0%} vs. typical"
 # delta_color="off": more or fewer trips is neither good nor bad
-cols[0].metric("Forecast", f"{forecast['prediction']:,}", delta=delta, delta_color="off")
-cols[1].metric(
+row.metric("Forecast", f"{forecast['prediction']:,}", delta=delta, delta_color="off", width=METRIC_WIDTH)
+row.metric(
     f"Last {weekday}", trips(context["last_week"]),
     help="Counted trips one week earlier. Empty if that day was a public holiday or incomplete.",
+    width=METRIC_WIDTH,
 )
-cols[2].metric(
+row.metric(
     f"Typical {weekday}", trips(context["typical"]),
+    width=METRIC_WIDTH,
     help=(
         "Mean of the same weekday over the four weeks before, without public holidays and "
         "incomplete days."
@@ -117,8 +112,9 @@ cols[2].metric(
 
 st.markdown("**Weather forecast**")
 metrics = weather_metrics(forecast)
-for col, (label, value) in zip(st.columns(len(metrics)), metrics.items()):
-    col.metric(label, value)
+row = metric_row()
+for label, value in metrics.items():
+    row.metric(label, value, width=METRIC_WIDTH)
 
 notes = day_notes(day)
 if notes:
@@ -151,10 +147,10 @@ if accuracy["n"] < 7:
         f"was off by {CV_RESULTS[-1][2]:.1%} on average (WAPE)."
     )
 else:
-    cols = st.columns(3)
-    cols[0].metric("Mean error", f"{accuracy['mae']:,.0f} trips")
-    cols[1].metric("WAPE", f"{accuracy['wape']:.1%}")
-    cols[2].metric("Bias", f"{accuracy['bias']:+.1%}")
+    row = metric_row()
+    row.metric("Mean error", f"{accuracy['mae']:,.0f} trips", width=METRIC_WIDTH)
+    row.metric("WAPE", f"{accuracy['wape']:.1%}", width=METRIC_WIDTH)
+    row.metric("Bias", f"{accuracy['bias']:+.1%}", width=METRIC_WIDTH)
     st.caption(
         f"Over the last {accuracy['n']} forecast days with complete counts. WAPE: sum of errors "
         "divided by the sum of counted trips. Bias: positive means the forecasts were too high."

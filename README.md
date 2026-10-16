@@ -141,7 +141,7 @@ pip install -e ".[app]"
 streamlit run streamlit_app.py
 ```
 
-The Streamlit app has three pages and can be understood on its own. [Forecast](app_pages/forecast.py) shows tomorrow's forecast next to the same weekday
+The Streamlit app has four pages and can be understood on its own. [Forecast](app_pages/forecast.py) shows tomorrow's forecast next to the same weekday
 last week and a typical one, the weather forecast it is based on, what sets the day apart in the calendar
 (public holiday, school holidays, no lectures), the counts and forecasts of the last eight weeks, the error of the logged forecasts and the monitoring
 status. It reads the forecast log from `main` on GitHub, so it shows a new forecast without redeploying,
@@ -149,8 +149,31 @@ and loads the recent counts directly from the city. If the daily job is switched
 and keeps showing the latest forecast. [Insights](app_pages/findings.py) shows the key findings
 of the exploratory analysis, the same as on the static page. [Explore all sites](app_pages/explore.py) shows the daily counts of
 all 23 counting sites of the city as published: compare sites over any period by day, week or month, see
-which periods are flagged and why, and which sites are busiest. On Streamlit Community Cloud the app is
+which periods are flagged and why, and which sites are busiest. [Leeze AI](app_pages/assistant.py) answers
+questions about the data in a chat (see below). On Streamlit Community Cloud the app is
 installed from [requirements.txt](requirements.txt).
+
+### AI assistant
+
+*Leeze* is Münster dialect for bicycle. The chat answers questions about the forecast and its accuracy, the
+counts at all sites, the weather and problems in the data. A language model (Claude Haiku) only chooses
+tools and words the answer; every number comes from one of nine tools
+([assistant_tools.py](src/radmuenster/assistant_tools.py)), plain functions on the published data that can
+be tested without a model. Below each answer, the page shows which tools were called with which arguments.
+The tool-use loop ([assistant.py](src/radmuenster/assistant.py)) is written by hand on the Messages API: it
+runs the tools the model asks for, sends wrong calls back as errors the model can correct, and makes the
+model answer after at most six tool rounds. The client is passed in, so the tests play the model.
+
+The API key is read from Streamlit secrets (locally `.streamlit/secrets.toml`, which is not committed):
+
+```toml
+ANTHROPIC_API_KEY = "sk-ant-..."
+```
+
+Without a key, the page says that the assistant is not set up. Against cost and misuse, a question has at
+most 500 characters, a conversation at most 10 questions (the whole conversation is sent with every
+question) and the app at most 100 questions per day across all users. The hard limit is the spending
+limit of the API account.
 
 ### All counting sites
 
@@ -185,6 +208,6 @@ the app reads instead of downloading them from the city.
 5. [x] Key findings on the static page: weekly pattern, season, rain, data quality, recomputed every evening
 6. [x] All 23 counting sites: load them, flag suspicious days (outages, dead channels) and explore and
    compare them in Streamlit
-7. [ ] AI assistant: ask questions about the data in natural language (an LLM with tools that query the
+7. [x] AI assistant: ask questions about the data in natural language (an LLM with tools that query the
    counts, weather and forecasts)
 8. [ ] Later, if useful: forecasts for more counting sites

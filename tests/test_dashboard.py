@@ -36,8 +36,10 @@ def test_latest_forecast_and_staleness():
     forecast = latest_forecast(log)
     assert forecast["prediction"] == 7000.0
     assert not is_stale(forecast, date(2026, 10, 12))
-    # Next evening without a new forecast: the job did not run
-    assert is_stale(forecast, date(2026, 10, 13))
+    # On the day itself, before the evening run
+    assert not is_stale(forecast, date(2026, 10, 13))
+    # The day after without a new forecast: the job did not run
+    assert is_stale(forecast, date(2026, 10, 14))
 
 
 def test_chart_data_breaks_line_on_incomplete_days():

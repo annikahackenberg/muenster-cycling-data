@@ -14,6 +14,7 @@ page = st.navigation(
         st.Page("app_pages/forecast.py", title="Forecast", default=True),
         st.Page("app_pages/findings.py", title="Insights", url_path="insights"),
         st.Page("app_pages/explore.py", title="Explore all sites"),
+        st.Page("app_pages/assistant.py", title="Leeze AI", url_path="leeze-ai"),
     ]
 )
 page.run()

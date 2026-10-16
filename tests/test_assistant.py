@@ -11,6 +11,7 @@ from radmuenster.assistant import (
     REFUSAL_TEXT,
     TRUNCATED_NOTE,
     ask,
+    system_prompt,
     tool_definitions,
 )
 from radmuenster.assistant_tools import TOOL_SPECS, AssistantData
@@ -188,3 +189,16 @@ def test_tool_definitions():
     for definition in definitions:
         assert definition["strict"] is True
         assert set(definition) == {"name", "description", "input_schema", "strict"}
+
+
+@pytest.mark.parametrize(
+    ("today", "local_time"),
+    [
+        (date(2026, 10, 16), "20:15"),  # summer time
+        (date(2026, 10, 26), "19:15"),  # winter time since 25 October
+    ],
+)
+def test_system_prompt_gives_the_update_time_in_muenster(today, local_time):
+    prompt = system_prompt(today)
+    assert f"at about {local_time} Münster time" in prompt
+    assert prompt.endswith(f"Today is {today:%A, %Y-%m-%d}.")

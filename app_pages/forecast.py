@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import json
 from datetime import timedelta
-from urllib.error import URLError
-from urllib.request import urlopen
 
 import pandas as pd
 import streamlit as st
@@ -23,13 +20,10 @@ from radmuenster.dashboard import (
     weather_metrics,
 )
 from radmuenster.data import DEFAULT_SITE, load_intervals, to_daily
-from radmuenster.forecast import FORECAST_FILE, read_forecasts, today_in_muenster
-from radmuenster.monitoring import STATUS_FILE
+from radmuenster.forecast import today_in_muenster
+from radmuenster.published import read_forecast_log, read_status
 
 REPO_URL = "https://github.com/annikahackenberg/muenster-cycling-data"
-# The daily job commits to main; reading from there gets the latest forecast
-# without redeploying the page
-RAW_URL = "https://raw.githubusercontent.com/annikahackenberg/muenster-cycling-data/main/"
 CHART_WEEKS = 8
 
 # The app's background (dark: backgroundColor in .streamlit/config.toml), for
@@ -42,22 +36,12 @@ CACHE_SECONDS = 3600
 
 @st.cache_data(ttl=CACHE_SECONDS)
 def load_forecast_log() -> pd.DataFrame:
-    """The forecast log from main on GitHub, or the local file if it is not
-    reachable (e.g. before the first merge)."""
-    try:
-        return read_forecasts(RAW_URL + FORECAST_FILE.as_posix())
-    except URLError:
-        return read_forecasts(FORECAST_FILE)
+    return read_forecast_log()
 
 
 @st.cache_data(ttl=CACHE_SECONDS)
 def load_status() -> dict:
-    """The warnings of the latest monitoring run, like load_forecast_log."""
-    try:
-        with urlopen(RAW_URL + STATUS_FILE.as_posix(), timeout=10) as response:
-            return json.load(response)
-    except URLError:
-        return json.loads(STATUS_FILE.read_text(encoding="utf-8"))
+    return read_status()
 
 
 @st.cache_data(ttl=CACHE_SECONDS)

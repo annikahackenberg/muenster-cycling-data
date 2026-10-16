@@ -14,9 +14,14 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import UTC, date, datetime, time
 
 from radmuenster.assistant_tools import FORECAST_SITE, TOOL_SPECS, AssistantData, ToolError, run_tool
+from radmuenster.forecast import TIMEZONE
+
+# The smallest current Claude model: the tools do the work, the model picks
+# them and words the answer (decided 2026-10-14; compare with Sonnet later)
+MODEL = "claude-haiku-5-5"
 
 # Tool rounds per question. Then the model gets one last call without tools
 # and has to answer with what it has.
@@ -24,15 +29,28 @@ MAX_ROUNDS = 6
 
 MAX_TOKENS = 4000
 
+# When the published data and the forecast are usually updated: the daily job
+# is scheduled for 18:00 UTC (.github/workflows/daily-forecast.yml), starts
+# about 10 minutes late and runs a few minutes
+DAILY_UPDATE_UTC = time(18, 15)
+
 SYSTEM_PROMPT = f"""\
 You answer questions about bicycle traffic in Münster, Germany, from the open \
 counting data of the City of Münster (23 automatic counting sites) and a daily \
 forecast for the {FORECAST_SITE}.
 
+Always answer in the language of the user's latest message. Site names and tool \
+results are partly German, and earlier answers may be in another language; \
+neither changes the language of your answer.
+
 - Take every number from a tool result. If no tool can answer the question, say so; \
 do not estimate from general knowledge.
+- Explain with what the tools return. Do not claim effects (of the weather, a \
+holiday, ...) that no tool result states.
+- If the latest forecast or the latest counts are for an earlier day than asked, \
+say which day they are for and when the next update comes, and still answer with them.
 - Mention flagged days and data problems when they affect the answer.
-- Answer in the language of the question, briefly, with numbers rounded sensibly.
+- Answer briefly, with numbers rounded sensibly.
 - Questions unrelated to cycling in Münster: say briefly that you only answer those."""
 
 LIMIT_NOTE = "The tool limit for this question is reached. Answer with the results you have."
@@ -77,7 +95,19 @@ def system_prompt(today: date) -> str:
     # The model needs today's date for "yesterday" or "last week". It changes
     # daily, so it goes last: a prompt cache (not used yet) matches the
     # request from the start up to the first change
-    return f"{SYSTEM_PROMPT}\n\nToday is {today:%A, %Y-%m-%d}."
+    return f"{SYSTEM_PROMPT}\n\n{update_note(today)}\nToday is {today:%A, %Y-%m-%d}."
+
+
+def update_note(today: date) -> str:
+    """When the data is updated, in Münster time: the model should not
+    convert time zones, and the hour changes with daylight saving time."""
+    update = datetime.combine(today, DAILY_UPDATE_UTC, tzinfo=UTC).astimezone(TIMEZONE)
+    return (
+        f"The counts, the weather and the forecast are updated once a day, in the evening at "
+        f"about {update:%H:%M} Münster time. Until then the latest counts are usually for the "
+        f"day before yesterday and the latest forecast is for today; after the update, the "
+        f"forecast is for tomorrow."
+    )
 
 
 def _execute(data: AssistantData, block) -> tuple[dict, ToolCall]:

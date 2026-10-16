@@ -1,5 +1,6 @@
 import copy
 import json
+import threading
 from datetime import date
 from types import SimpleNamespace
 
@@ -8,9 +9,13 @@ import pytest
 
 from radmuenster.assistant import (
     LIMIT_NOTE,
+    MAX_QUESTION_CHARS,
+    MAX_QUESTIONS_PER_CONVERSATION,
     REFUSAL_TEXT,
     TRUNCATED_NOTE,
+    DailyLimit,
     ask,
+    question_problem,
     system_prompt,
     tool_definitions,
 )
@@ -202,3 +207,35 @@ def test_system_prompt_gives_the_update_time_in_muenster(today, local_time):
     prompt = system_prompt(today)
     assert f"at about {local_time} Münster time" in prompt
     assert prompt.endswith(f"Today is {today:%A, %Y-%m-%d}.")
+
+
+def test_question_problem_checks_length_and_conversation():
+    assert question_problem("How many trips?", questions_asked=0) is None
+    assert "500 characters" in question_problem("x" * (MAX_QUESTION_CHARS + 1), questions_asked=0)
+    assert question_problem("x" * MAX_QUESTION_CHARS, questions_asked=MAX_QUESTIONS_PER_CONVERSATION - 1) is None
+    assert "new conversation" in question_problem("Hi", questions_asked=MAX_QUESTIONS_PER_CONVERSATION)
+
+
+def test_daily_limit_counts_per_day():
+    limit = DailyLimit(per_day=2)
+    monday, tuesday = date(2026, 10, 19), date(2026, 10, 20)
+    assert limit.remaining(monday) == 2
+    assert limit.take(monday) and limit.take(monday)
+    assert not limit.take(monday)
+    assert limit.remaining(monday) == 0
+    # A new day starts with a new count
+    assert limit.remaining(tuesday) == 2
+    assert limit.take(tuesday)
+
+
+def test_daily_limit_holds_across_threads():
+    # Streamlit runs every session in its own thread
+    limit = DailyLimit(per_day=50)
+    today = date(2026, 10, 19)
+    results = []
+    threads = [threading.Thread(target=lambda: results.append(limit.take(today))) for _ in range(80)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert results.count(True) == 50

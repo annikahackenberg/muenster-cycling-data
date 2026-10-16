@@ -13,6 +13,7 @@ blocks with type text or tool_use, stop_reason, usage).
 from __future__ import annotations
 
 import json
+import threading
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time
 
@@ -28,6 +29,13 @@ MODEL = "claude-haiku-5-5"
 MAX_ROUNDS = 6
 
 MAX_TOKENS = 4000
+
+# Limits against cost and misuse of the public app. The whole conversation is
+# sent with every question, so long conversations cost more per question.
+# The hard limit is the spending limit in the Anthropic Console.
+MAX_QUESTION_CHARS = 500
+MAX_QUESTIONS_PER_CONVERSATION = 10
+MAX_QUESTIONS_PER_DAY = 100
 
 # When the published data and the forecast are usually updated: the daily job
 # is scheduled for 18:00 UTC (.github/workflows/daily-forecast.yml), starts
@@ -186,3 +194,51 @@ def ask(
         if response.stop_reason == "max_tokens":
             answer.text = f"{answer.text}\n\n{TRUNCATED_NOTE}".strip()
     return answer
+
+
+def question_problem(question: str, questions_asked: int) -> str | None:
+    """Why a question is not sent to the model, or None if it may be.
+    questions_asked counts the questions of this conversation so far."""
+    if len(question) > MAX_QUESTION_CHARS:
+        return f"Please ask in at most {MAX_QUESTION_CHARS} characters."
+    if questions_asked >= MAX_QUESTIONS_PER_CONVERSATION:
+        return (
+            f"This conversation has reached {MAX_QUESTIONS_PER_CONVERSATION} questions. "
+            "Please start a new conversation."
+        )
+    return None
+
+
+class DailyLimit:
+    """Questions per day across all users of the app.
+
+    The count is kept in memory: a restart of the app resets it. That is
+    good enough against misuse; the spending limit in the Anthropic Console
+    is the hard limit. Streamlit runs every session in its own thread, so
+    the count is changed under a lock.
+    """
+
+    def __init__(self, per_day: int = MAX_QUESTIONS_PER_DAY):
+        self.per_day = per_day
+        self._day: date | None = None
+        self._count = 0
+        self._lock = threading.Lock()
+
+    def _start(self, today: date) -> None:
+        # A new day starts with a new count
+        if today != self._day:
+            self._day, self._count = today, 0
+
+    def remaining(self, today: date) -> int:
+        with self._lock:
+            self._start(today)
+            return self.per_day - self._count
+
+    def take(self, today: date) -> bool:
+        """Counts one question for today; False if none is left."""
+        with self._lock:
+            self._start(today)
+            if self._count >= self.per_day:
+                return False
+            self._count += 1
+            return True

@@ -10,7 +10,7 @@ from datetime import date
 import anthropic
 import streamlit as st
 
-from radmuenster.assistant import MODEL, ask
+from radmuenster.assistant import MAX_QUESTION_CHARS, MODEL, DailyLimit, ask, question_problem
 from radmuenster.assistant_tools import AssistantData
 from radmuenster.forecast import today_in_muenster
 from radmuenster.published import read_forecast_log, read_status
@@ -25,6 +25,8 @@ EXAMPLES = [
     "How much does rain reduce cycling?",
     "Were there any data problems at the Neutor this year?",
 ]
+
+DAY_LIMIT_TEXT = "The assistant has answered as many questions as it can today. Please come back tomorrow."
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +48,13 @@ def load_data(today: date) -> AssistantData:
 @st.cache_resource
 def get_client(api_key: str) -> anthropic.Anthropic:
     return anthropic.Anthropic(api_key=api_key, timeout=60)
+
+
+@st.cache_resource
+def daily_limit() -> DailyLimit:
+    # cache_resource: one object shared by all sessions, so all users count
+    # towards the same limit
+    return DailyLimit()
 
 
 def api_key() -> str | None:
@@ -71,43 +80,8 @@ def show(turn: dict) -> None:
                 st.caption(f"{turn['input_tokens']:,} input and {turn['output_tokens']:,} output tokens")
 
 
-st.title("Leeze AI")
-st.write(
-    "An AI chat about Münster's bicycle traffic (*Leeze* is Münster dialect for bicycle): the "
-    "forecast and how accurate it is, the counts at all 23 sites, the weather, and problems in "
-    "the data. A language model (Claude) chooses which of nine data tools to call and words the "
-    "answer; the numbers come from the tools."
-)
-st.caption(
-    "Your questions are sent to Anthropic's API. Answers can still be wrong: check the tool "
-    "calls below each answer."
-)
-
-key = api_key()
-if key is None:
-    st.info("The assistant is not set up here: the API key is missing.")
-    st.stop()
-
-today = today_in_muenster()
-data = load_data(today)
-client = get_client(key)
-
-# history: the conversation as sent to the API (with tool calls);
-# chat: what the page shows
-st.session_state.setdefault("history", [])
-st.session_state.setdefault("chat", [])
-
-for turn in st.session_state.chat:
-    show(turn)
-
-question = st.chat_input("Ask a question about cycling in Münster")
-if not st.session_state.chat:
-    st.write("Or try one of these:")
-    for example in EXAMPLES:
-        if st.button(example):
-            question = example
-
-if question:
+def answer_question(client: anthropic.Anthropic, data: AssistantData, question: str) -> None:
+    """Asks the model, adds both turns to the conversation and draws the page again."""
     user_turn = {"role": "user", "text": question}
     show(user_turn)
     with st.spinner("Looking at the data …"):
@@ -132,6 +106,58 @@ if question:
     st.session_state.chat += [user_turn, assistant_turn]
     # Draw the page again from the chat, without the example buttons
     st.rerun()
+
+
+st.title("Leeze AI")
+st.write(
+    "An AI chat about Münster's bicycle traffic (*Leeze* is Münster dialect for bicycle): the "
+    "forecast and how accurate it is, the counts at all 23 sites, the weather, and problems in "
+    "the data. A language model (Claude) chooses which of nine data tools to call and words the "
+    "answer; the numbers come from the tools."
+)
+st.caption(
+    "Your questions are sent to Anthropic's API. Answers can still be wrong: check the tool "
+    "calls below each answer."
+)
+
+key = api_key()
+if key is None:
+    st.info("The assistant is not set up here: the API key is missing.")
+    st.stop()
+
+today = today_in_muenster()
+data = load_data(today)
+client = get_client(key)
+limit = daily_limit()
+
+# history: the conversation as sent to the API (with tool calls);
+# chat: what the page shows
+st.session_state.setdefault("history", [])
+st.session_state.setdefault("chat", [])
+
+for turn in st.session_state.chat:
+    show(turn)
+
+if limit.remaining(today) <= 0:
+    st.info(DAY_LIMIT_TEXT)
+    st.stop()
+
+question = st.chat_input("Ask a question about cycling in Münster", max_chars=MAX_QUESTION_CHARS)
+if not st.session_state.chat:
+    st.write("Or try one of these:")
+    for example in EXAMPLES:
+        if st.button(example):
+            question = example
+
+if question:
+    # The input field limits the length too, but only in the browser
+    problem = question_problem(question, questions_asked=len(st.session_state.chat) // 2)
+    if problem:
+        st.warning(problem)
+    elif not limit.take(today):
+        st.info(DAY_LIMIT_TEXT)
+    else:
+        answer_question(client, data, question)
 
 if st.session_state.chat and st.button("New conversation"):
     st.session_state.history = []

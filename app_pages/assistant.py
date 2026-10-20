@@ -39,9 +39,12 @@ DAY_LIMIT_TEXT = "The assistant has answered as many questions as it can today. 
 logger = logging.getLogger(__name__)
 
 # Streamlit's chat input has no visible border and looks like a hint; a grey
-# that works on both themes makes it look like a field to type in
-INPUT_STYLE = """<style>
+# that works on both themes makes it look like a field to type in.
+# A table in an answer can be wider than a phone screen, and the chat message
+# cuts off its last column; display: block lets the table scroll sideways.
+PAGE_STYLE = """<style>
 [data-testid="stChatInput"] > div { border: 2px solid rgba(128, 128, 128, 0.7); }
+[data-testid="stChatMessage"] table { display: block; max-width: 100%; overflow-x: auto; }
 </style>"""
 
 
@@ -122,7 +125,7 @@ def answer_question(client: anthropic.Anthropic, data: AssistantData, question: 
     st.rerun()
 
 
-st.html(INPUT_STYLE)
+st.html(PAGE_STYLE)
 st.title("Leeze AI")
 st.write(
     "An AI chat about Münster's bicycle traffic (*Leeze* is Münster dialect for bicycle): the "

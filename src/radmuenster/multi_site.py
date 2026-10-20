@@ -24,6 +24,8 @@ from radmuenster.sites import SITES
 # Sites with data since 2020 or earlier: at least three years of training
 # data before the first test quarter (2023)
 LONG_HISTORY_SITES = [site for site in SITES if site.first_month <= "2020-01"]
+# All other sites, with data since 2023 or 2024 only
+SHORT_HISTORY_SITES = [site for site in SITES if site not in LONG_HISTORY_SITES]
 
 # Features measured in trips, which the global model divides by the scale of the site
 SCALED_COLUMNS = [*(f"lag_{k}" for k in LAGS), "mean_7d", "same_weekday_4w"]

@@ -71,6 +71,26 @@ def test_cross_validate_hides_the_target_from_the_model():
     assert (predictions["actual"] == predictions["predicted"]).all()
 
 
+def test_cross_validate_keeps_the_site_of_each_row():
+    index = pd.date_range("2022-12-30", "2023-01-02", freq="D", name="date")
+    # Two sites on the same dates; site b always has ten times the count
+    table = pd.concat(
+        [
+            pd.DataFrame({"site": "a", "lag_7": 1.0, "count": 1.0}, index=index),
+            pd.DataFrame({"site": "b", "lag_7": 10.0, "count": 10.0}, index=index),
+        ]
+    ).sort_index()
+
+    predictions = cross_validate(
+        lambda train, test: test["lag_7"].to_numpy(),
+        table,
+        keep=("site",),
+        first_test_start=pd.Timestamp("2023-01-01"),
+    )
+    assert len(predictions) == 4
+    assert (predictions["actual"] == predictions["site"].map({"a": 1.0, "b": 10.0})).all()
+
+
 def test_summarize_weights_every_day_equally():
     # Fold 0: 1 day with error 100, fold 1: 3 days with error 0
     predictions = pd.DataFrame(

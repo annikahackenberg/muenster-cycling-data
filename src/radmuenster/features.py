@@ -41,6 +41,8 @@ SPECIAL_DAYS = ("is_holiday", "is_bridge_day", "is_christmas", "is_rosenmontag")
 # - 28 October 2025, after the odd day of 27 October: outbound counts about
 #   60 % higher than before
 # Counts from different periods are not fully comparable.
+# These are the periods of the Warendorfer Straße only; other sites pass
+# their own period starts (or none) to build_features.
 PERIOD_STARTS = (pd.Timestamp("2024-06-12"), pd.Timestamp("2025-10-28"))
 
 
@@ -139,12 +141,15 @@ def lag_features(daily: pd.DataFrame, dates: pd.DatetimeIndex) -> pd.DataFrame:
     return pd.DataFrame(columns, index=pd.DatetimeIndex(dates, name="date"))
 
 
-def measurement_period(dates: pd.DatetimeIndex) -> pd.Series:
+def measurement_period(
+    dates: pd.DatetimeIndex, period_starts: tuple[pd.Timestamp, ...] = PERIOD_STARTS
+) -> pd.Series:
     """Measurement period of each date: 0 before the first entry of
-    PERIOD_STARTS, 1 from the first, 2 from the second, and so on."""
+    period_starts, 1 from the first, 2 from the second, and so on.
+    Without period_starts every date is in period 0."""
     dates = pd.DatetimeIndex(dates).normalize()
     # searchsorted counts how many period starts lie on or before each date
-    period = pd.DatetimeIndex(PERIOD_STARTS).searchsorted(dates, side="right")
+    period = pd.DatetimeIndex(list(period_starts)).searchsorted(dates, side="right")
     return pd.Series(period, index=pd.DatetimeIndex(dates, name="date"), name="period")
 
 
@@ -205,11 +210,16 @@ def academic_features(dates: pd.DatetimeIndex) -> pd.DataFrame:
 
 
 def build_features(
-    daily: pd.DataFrame, weather: pd.DataFrame, dates: pd.DatetimeIndex
+    daily: pd.DataFrame,
+    weather: pd.DataFrame,
+    dates: pd.DatetimeIndex,
+    period_starts: tuple[pd.Timestamp, ...] = PERIOD_STARTS,
 ) -> pd.DataFrame:
     """All features for the given dates, one row per date.
 
-    daily is the output of to_daily, weather the output of load_weather.
+    daily is the output of to_daily (or any table with the columns count and
+    complete), weather the output of load_weather. period_starts are the
+    measurement periods of the site (see PERIOD_STARTS).
     Works for past dates (training) and for tomorrow (forecast) alike; the
     target count is never part of the result.
     """
@@ -218,7 +228,7 @@ def build_features(
         [
             calendar_features(dates),
             academic_features(dates),
-            measurement_period(dates),
+            measurement_period(dates, period_starts),
             lag_features(daily, dates),
             weather_features(weather, dates),
         ],
@@ -226,7 +236,11 @@ def build_features(
     )
 
 
-def training_table(daily: pd.DataFrame, weather: pd.DataFrame) -> pd.DataFrame:
+def training_table(
+    daily: pd.DataFrame,
+    weather: pd.DataFrame,
+    period_starts: tuple[pd.Timestamp, ...] = PERIOD_STARTS,
+) -> pd.DataFrame:
     """Features plus the target column count for every complete day."""
     complete = daily.index[daily["complete"]]
-    return build_features(daily, weather, complete).join(daily["count"])
+    return build_features(daily, weather, complete, period_starts).join(daily["count"])

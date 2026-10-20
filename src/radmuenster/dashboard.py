@@ -70,9 +70,13 @@ def latest_forecast(log: pd.DataFrame) -> pd.Series:
 
 
 def is_stale(forecast: pd.Series, today: date) -> bool:
-    """True if the latest forecast is not for tomorrow: the daily job did not
-    run (failed, or switched off after the application phase)."""
-    return forecast["forecast_date"].date() <= today
+    """True if the latest forecast is for a day before today: the daily job
+    did not run (failed, or switched off after the application phase).
+
+    During the day, before the evening run, the latest forecast is the one
+    for today, which is still current.
+    """
+    return forecast["forecast_date"].date() < today
 
 
 def chart_data(daily: pd.DataFrame, log: pd.DataFrame, start: date) -> pd.DataFrame:

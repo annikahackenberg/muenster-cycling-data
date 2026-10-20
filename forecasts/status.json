@@ -1,4 +1,6 @@
 {
-  "checked_on": "2026-10-19",
-  "warnings": []
+  "checked_on": "2026-10-20",
+  "warnings": [
+    "No counts since 2026-10-18: the city's daily update may have failed."
+  ]
 }

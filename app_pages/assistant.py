@@ -10,7 +10,15 @@ from datetime import date
 import anthropic
 import streamlit as st
 
-from radmuenster.assistant import MAX_QUESTION_CHARS, MODEL, DailyLimit, ask, question_problem
+from radmuenster.assistant import (
+    MAX_QUESTION_CHARS,
+    MAX_QUESTIONS_PER_CONVERSATION,
+    MAX_QUESTIONS_PER_DAY,
+    MODEL,
+    DailyLimit,
+    ask,
+    question_problem,
+)
 from radmuenster.assistant_tools import AssistantData
 from radmuenster.forecast import today_in_muenster
 from radmuenster.published import read_forecast_log, read_status
@@ -124,7 +132,8 @@ st.write(
 )
 st.caption(
     "Your questions are sent to Anthropic's API. Answers can still be wrong: check the tool "
-    "calls below each answer."
+    f"calls below each answer. Up to {MAX_QUESTIONS_PER_CONVERSATION} questions per conversation "
+    f"and {MAX_QUESTIONS_PER_DAY} questions per day for all users together."
 )
 
 key = api_key()

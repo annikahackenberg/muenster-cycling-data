@@ -103,6 +103,23 @@ WAPE is the sum of errors divided by the sum of actual counts; MAPE is dominated
 NRMSE by a few large errors. The cross-validation uses the measured weather of the forecast day, so the
 error of the app, which only has a weather forecast, will be higher.
 
+### More counting sites
+
+Does the model work for the other counting sites, and is one **global model** for all sites better
+than one model per site? The global model divides the count and the lags by the median count of
+each site (from the training data only) and gets the site as a categorical feature, so that it can
+learn weekly patterns, weather and holidays from all sites together (`radmuenster.multi_site`,
+details: [notebooks/03_multi_site_models.ipynb](notebooks/03_multi_site_models.ipynb)).
+
+| Sites, test period | Naive baseline | LightGBM per site | Global LightGBM |
+|---|---|---|---|
+| 9 sites with data since 2019/2020, quarters from 2023 | 17.9 % | 9.0 % | 9.1 % |
+| 14 sites with data since 2023/2024, quarters from 2025 | 20.7 % | 11.5 % | **9.9 %** |
+
+WAPE over all test days. With a long history both approaches are equally good; for the newer sites
+the global model is clearly better. The main problem is the data: several sites have weeks of partial
+counts that the flags do not detect yet.
+
 ## Daily forecast
 
 ```bash
@@ -210,4 +227,7 @@ the app reads instead of downloading them from the city.
    compare them in Streamlit
 7. [x] AI assistant: ask questions about the data in natural language (an LLM with tools that query the
    counts, weather and forecasts)
-8. [ ] Later, if useful: forecasts for more counting sites
+8. [ ] Forecasts for more counting sites
+   - [x] Compare one model per site with one global model for all sites
+   - [ ] Flag partial outages that the current flags miss
+   - [ ] Daily forecasts for all sites with the global model

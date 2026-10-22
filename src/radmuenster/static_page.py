@@ -89,8 +89,14 @@ def themed_spec(chart: alt.TopLevelMixin, theme: str) -> dict:
     return chart.to_dict()
 
 
-def _findings_section(daily: pd.DataFrame, weather: pd.DataFrame) -> tuple[str, dict]:
-    """HTML of the key findings and the specs of their charts (per theme)."""
+def _findings_section(
+    daily: pd.DataFrame, weather: pd.DataFrame, site_counts: dict[str, pd.DataFrame] | None = None
+) -> tuple[str, dict]:
+    """HTML of the key findings and the specs of their charts (per theme).
+
+    With site_counts (site_counts_by_id), the first finding across all sites
+    follows, with a link to the others in the app; the page stays short.
+    """
     items = findings.key_findings(daily, weather)
     html = "\n".join(
         f"<h3>{escape(item.title)}</h3>\n"
@@ -100,6 +106,17 @@ def _findings_section(daily: pd.DataFrame, weather: pd.DataFrame) -> tuple[str, 
         for item in items
     )
     specs = {item.name: {t: themed_spec(item.chart(t), t) for t in THEMES} for item in items}
+    site_items = findings.site_findings(findings.site_profiles(site_counts, weather)) if site_counts else []
+    if site_items:
+        item = site_items[0]
+        html += (
+            f"\n<h3>{escape(item.title)}</h3>\n"
+            f'<div id="chart-{item.name}" class="chart" role="img" aria-label="{escape(item.description)}"></div>\n'
+            f"<p>{escape(item.text)}</p>\n"
+            f'<p class="note">How rain and the season affect each site: <a href="{STREAMLIT_URL}/insights">Insights '
+            "in the app</a>.</p>\n"
+        )
+        specs[item.name] = {t: themed_spec(item.chart(t), t) for t in THEMES}
     return html, specs
 
 
@@ -233,13 +250,15 @@ def render_page(
     today: date,
     weather: pd.DataFrame,
     overview: pd.DataFrame | None = None,
+    site_counts: dict[str, pd.DataFrame] | None = None,
 ) -> str:
     """The whole page as HTML.
 
     daily is the output of to_daily (all days since 2019, for the findings),
     log the forecast log, warnings the result of run_checks, today the date of
     the run in Münster, weather the output of load_weather, overview the
-    forecasts of all sites (sites_overview; without it, that section is left out).
+    forecasts of all sites (sites_overview; without it, that section is left out),
+    site_counts the counts of all sites (site_counts_by_id) for a finding across them.
     """
     forecast = latest_forecast(log)
     start = today - timedelta(weeks=CHART_WEEKS)
@@ -251,7 +270,7 @@ def render_page(
             f"made on {forecast['made_on']:%d %B %Y}.</p>"
         )
     delta, context = _context_section(forecast, daily)
-    findings_html, specs = _findings_section(daily, weather)
+    findings_html, specs = _findings_section(daily, weather, site_counts)
     specs["counts"] = {
         t: themed_spec(counts_chart(data, t, THEMES[t]["surface"]), t) for t in THEMES
     }

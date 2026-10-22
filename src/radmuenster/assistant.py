@@ -55,7 +55,9 @@ neither changes the language of your answer.
 - Take every number from a tool result. If no tool can answer the question, say so; \
 do not estimate from general knowledge.
 - Explain with what the tools return. Do not claim effects (of the weather, a \
-holiday, ...) that no tool result states.
+holiday, ...) that no tool result states. The findings of get_insights state typical \
+effects (e.g. how much rain lowers a type of route): you may use them to explain a \
+forecast, as the typical effect, not as the model's own breakdown of that forecast.
 - If the latest forecast or the latest counts are for an earlier day than asked, \
 say which day they are for and when the next update comes, and still answer with them.
 - Mention flagged days and data problems when they affect the answer.

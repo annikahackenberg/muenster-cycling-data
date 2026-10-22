@@ -85,13 +85,19 @@ def test_missing_partial_and_zero_days():
 def test_load_all_sites_reports_broken_sites_and_keeps_the_others(monkeypatch):
     days = pd.date_range("2026-01-01", periods=3, freq="D")
 
-    def fake_load(site_id, start, end=None, cache_dir=None):
+    refs = []
+
+    def fake_load(site_id, start, end=None, cache_dir=None, ref=None):
+        refs.append(ref)
         if site_id == "100034980":  # Hammer Straße
             raise ValueError("new file format")
         return make_intervals(days, {"a": [100.0] * 3})
 
     monkeypatch.setattr("radmuenster.sites.load_site_intervals", fake_load)
+    monkeypatch.setattr("radmuenster.sites.latest_commit", lambda: "abc123")
     table, failed = load_all_sites()
+    # All sites from the same commit
+    assert set(refs) == {"abc123"}
     assert failed == {"Hammer Straße": "ValueError: new file format"}
     assert table["site_id"].nunique() == len(SITES) - 1
     assert list(table.columns[:3]) == ["site_id", "site_name", "date"]

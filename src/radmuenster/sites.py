@@ -21,7 +21,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from radmuenster.data import MIN_INTERVALS_PER_DAY, OK_STATUS, load_site_intervals
+from radmuenster.data import MIN_INTERVALS_PER_DAY, OK_STATUS, latest_commit, load_site_intervals
 
 
 @dataclass(frozen=True)
@@ -164,10 +164,14 @@ def load_all_sites(
     Columns: site_id, site_name, date and the columns of to_site_daily.
     """
     frames, failed = [], {}
+    # One commit for all sites: one API request, and all files from the same day
+    ref = latest_commit()
     for site in SITES:
         year, month = map(int, site.first_month.split("-"))
         try:
-            intervals = load_site_intervals(site.id, start=date(year, month, 1), end=end, cache_dir=cache_dir)
+            intervals = load_site_intervals(
+                site.id, start=date(year, month, 1), end=end, cache_dir=cache_dir, ref=ref
+            )
             daily = to_site_daily(intervals).reset_index()
         # Deliberately broad: whatever breaks one site is reported, not raised
         except Exception as error:

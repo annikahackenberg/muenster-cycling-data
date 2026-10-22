@@ -5,9 +5,11 @@ import pytest
 import requests
 
 from radmuenster.data import (
+    COMMITS_URL,
     KNOWN_FAULTS,
     download_month,
     is_final,
+    latest_commit,
     load_intervals,
     month_range,
     parse_month_csv,
@@ -139,13 +141,19 @@ class FakeResponse:
 
 
 class FakeServer:
-    """Fake for requests.get: answers from a dict, unknown months return 404."""
+    """Fake for requests.get: answers from a dict, unknown months return 404.
+    The commits API answers with the commit in self.commit."""
 
     def __init__(self):
         self.responses: dict[str, FakeResponse] = {}
         self.calls: list[str] = []
+        self.urls: list[str] = []
+        self.commit = FakeResponse(200, "abc123\n")
 
-    def get(self, url: str, timeout: float) -> FakeResponse:
+    def get(self, url: str, timeout: float, headers: dict | None = None) -> FakeResponse:
+        self.urls.append(url)
+        if url == COMMITS_URL:
+            return self.commit
         month = url.rsplit("/", 1)[-1].removesuffix(".csv")
         self.calls.append(month)
         return self.responses.get(month, FakeResponse(404))
@@ -210,6 +218,18 @@ def test_load_intervals_skips_missing_months(server, tmp_path):
     df = load_intervals(SITE, date(2024, 6, 1), date(2024, 8, 31), tmp_path)
     assert df["count"].tolist() == [1, 2, 3]
     assert df.index.is_monotonic_increasing
+
+
+def test_load_intervals_downloads_the_latest_commit_not_main(server, tmp_path):
+    server.responses["2024-06"] = FakeResponse(200, make_csv("2024-06-01", [1, 2]))
+    load_intervals(SITE, date(2024, 6, 1), date(2024, 6, 30), tmp_path)
+    assert server.urls[0] == COMMITS_URL
+    assert "/abc123/" in server.urls[1] and "/main/" not in server.urls[1]
+
+
+def test_latest_commit_falls_back_to_main_if_github_fails(server):
+    server.commit = FakeResponse(403)
+    assert latest_commit() == "main"
 
 
 def test_load_intervals_raises_if_no_data(server, tmp_path):

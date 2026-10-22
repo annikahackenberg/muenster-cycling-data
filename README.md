@@ -72,6 +72,16 @@ Details, plots and reasoning: [notebooks/01_exploratory_analysis.ipynb](notebook
 - **Autocorrelation** is highest at 7 days (0.70) and high at 364 days (0.58). Lag 1 is not available for a
   forecast for tomorrow (leakage); usable lags start at 2 days.
 
+**All counting sites** (the same methods applied to every site,
+[findings.py](src/radmuenster/findings.py), recomputed every evening; numbers as of October 2026)
+- **Commuter and leisure routes:** at 20 of the 23 sites, Sundays have 37–56 % of a workday's trips. The
+  three sections of the Kanalpromenade along the canal reach 88–178 %: leisure routes. A site counts as a
+  leisure route when its Sundays reach at least 80 % of a workday, so new sites are sorted by the data.
+- **Rain** hits the leisure routes hardest: on weekends with 8+ hours of rain they keep 57–66 % of a
+  typical day, the commuter routes 78–92 %.
+- **Season:** most sites count 1.2–1.9 times as many trips in their busiest month as in their quietest,
+  the leisure routes 2.8–5.5 times. Most peak in May or June, the Neutor (next to the university) in October.
+
 ## Features
 
 `radmuenster.features.build_features(daily, weather, dates)` builds one row per date, for past dates
@@ -190,7 +200,8 @@ the forecast next to the same weekday last week and a typical one, the weather f
 status. It reads the forecast log from `main` on GitHub, so it shows a new forecast without redeploying,
 and loads the recent counts directly from the city. If the daily job is switched off, the page says so
 and keeps showing the latest forecast. [Insights](app_pages/findings.py) shows the key findings
-of the exploratory analysis, the same as on the static page. [Explore all sites](app_pages/explore.py) shows the daily counts of
+of the exploratory analysis, the same as on the static page, and the findings across all sites (the static
+page shows only the first of them). [Explore all sites](app_pages/explore.py) shows the daily counts of
 all 23 counting sites of the city as published: compare sites over any period by day, week or month, see
 which periods are flagged and why, and which sites are busiest. [Leeze AI](app_pages/assistant.py) answers
 questions about the data in a chat (see below). On Streamlit Community Cloud the app is
@@ -266,4 +277,5 @@ the app reads instead of downloading them from the city.
    - [x] Compare one model per site with one global model for all sites
    - [x] Flag partial outages that the current flags miss (a monitoring warning, decided by hand)
    - [x] Daily forecasts for all sites with the global model, a backtest, on both pages and in the assistant
-9. [ ] Insights for all sites, e.g. commuter and leisure routes in the rain, the season at each site
+9. [x] Insights for all sites: commuter and leisure routes, rain and season at each site, in the app, on the
+   static page (the first finding) and in the assistant

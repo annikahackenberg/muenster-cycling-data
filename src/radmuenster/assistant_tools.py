@@ -23,17 +23,37 @@ import pandas as pd
 
 from radmuenster.dashboard import (
     CV_RESULTS,
+    STALE_COUNTS_DAYS,
     day_notes,
     forecast_context,
     is_stale,
     latest_forecast,
+    sites_overview,
 )
 from radmuenster.explore import RESOLUTIONS, aggregate, flagged_periods, ranking, select
 from radmuenster.findings import key_findings
+from radmuenster.forecast import GLOBAL_MODEL_NAME, MODEL_NAME
 from radmuenster.monitoring import evaluate_forecasts
+from radmuenster.multi_site import site_counts_by_id
+from radmuenster.sites import SITES
 
-# The site with the forecast; its daily counts carry the direction checks
+# The site with its own forecast model; its daily counts carry the direction
+# checks. All other sites share one global model.
 FORECAST_SITE = "Warendorfer Straße"
+SITE_IDS = {site.name: site.id for site in SITES}
+
+OWN_MODEL = (
+    "LightGBM, retrained every evening on all complete days since 2019, with calendar, "
+    "university and school holidays, recent counts and the weather forecast."
+)
+GLOBAL_MODEL = (
+    "One LightGBM for all sites, retrained every evening on all sites together, with the counts "
+    "of each site divided by its median; the same features as the model of the Warendorfer Straße."
+)
+# The forecast logs and the backtest have these columns at least
+_LOG_COLUMNS = [
+    "forecast_date", "made_on", "site_id", "site_name", "model", "prediction", "latest_complete_day",
+]
 
 # A tool returns at most this many rows, so that one answer cannot fill the
 # model's context; for longer periods the model has to choose a coarser
@@ -62,9 +82,11 @@ class AssistantData:
     sites_daily  daily counts of all sites (load_all_sites)
     daily        daily counts of the Warendorfer Straße (to_daily)
     weather      daily weather (load_weather), including forecast days
-    log          the forecast log (read_forecasts)
+    log          the forecast log of the Warendorfer Straße (read_forecasts)
     today        today in Münster
     warnings     the current monitoring warnings
+    sites_log    the forecasts of all sites (SITES_FORECAST_FILE)
+    backtest     the backtest of all sites (BACKTEST_FILE)
     """
 
     sites_daily: pd.DataFrame
@@ -73,6 +95,8 @@ class AssistantData:
     log: pd.DataFrame
     today: date
     warnings: list[str] = field(default_factory=list)
+    sites_log: pd.DataFrame = field(default_factory=lambda: pd.DataFrame(columns=_LOG_COLUMNS))
+    backtest: pd.DataFrame = field(default_factory=lambda: pd.DataFrame(columns=_LOG_COLUMNS))
 
 
 def _number(value: float, digits: int = 0) -> float | int | None:
@@ -180,12 +204,36 @@ def rank_sites(data: AssistantData, start: str, end: str) -> dict:
     }
 
 
-def get_forecast(data: AssistantData) -> dict:
-    """The latest forecast with the counts, weather and calendar it compares to."""
-    forecast = latest_forecast(data.log)
-    context = forecast_context(forecast, data.daily)
-    return {
-        "site": FORECAST_SITE,
+def _counts(data: AssistantData) -> dict[str, pd.DataFrame]:
+    return site_counts_by_id(data.sites_daily, data.daily)
+
+
+def _site_forecasts(data: AssistantData, name: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, str]:
+    """The forecast log, daily counts, backtest and model description of one
+    site: the own model for the Warendorfer Straße, the global one elsewhere."""
+    if name == FORECAST_SITE:
+        backtest = data.backtest[data.backtest["model"] == MODEL_NAME]
+        return data.log, data.daily, backtest, OWN_MODEL
+    site_id = SITE_IDS[name]
+
+    def of_site(table: pd.DataFrame) -> pd.DataFrame:
+        return table[(table["site_id"] == site_id) & (table["model"] == GLOBAL_MODEL_NAME)]
+
+    daily = _counts(data).get(site_id, pd.DataFrame(columns=["count", "complete"]))
+    return of_site(data.sites_log), daily, of_site(data.backtest), GLOBAL_MODEL
+
+
+def get_forecast(data: AssistantData, site: str = FORECAST_SITE) -> dict:
+    """The latest forecast at a site with the counts, weather and calendar it
+    compares to."""
+    name = _site(data, site)
+    log, daily, _, model = _site_forecasts(data, name)
+    if log.empty:
+        return {"site": name, "note": "No forecast for this site yet: they start with the next daily run."}
+    forecast = latest_forecast(log)
+    context = forecast_context(forecast, daily)
+    result = {
+        "site": name,
         "forecast_date": f"{forecast['forecast_date']:%Y-%m-%d}",
         "weekday": f"{forecast['forecast_date']:%A}",
         "predicted_trips": _number(forecast["prediction"]),
@@ -197,32 +245,81 @@ def get_forecast(data: AssistantData) -> dict:
             label: _number(forecast[column], 1) for column, label in WEATHER_COLUMNS.items()
         },
         "calendar": day_notes(forecast["forecast_date"]) or ["regular day"],
-        "model": (
-            "LightGBM, retrained every evening on all complete days since 2019, with calendar, "
-            "university and school holidays, recent counts and the weather forecast."
+        "model": model,
+    }
+    last_usable = pd.Timestamp(forecast["latest_complete_day"])
+    if last_usable < forecast["forecast_date"] - pd.Timedelta(days=STALE_COUNTS_DAYS):
+        result["note"] = (
+            f"No usable counts since {last_usable:%Y-%m-%d} (the counter is faulty): the forecast "
+            "estimates all traffic from older data and cannot be compared with the counts."
+        )
+    return result
+
+
+def get_forecasts_all_sites(data: AssistantData) -> dict:
+    """The latest forecast at every site, the largest first, with the change
+    against a typical day and the typical error."""
+    global_log = data.sites_log[data.sites_log["model"] == GLOBAL_MODEL_NAME]
+    if global_log.empty:
+        return {
+            "note": "Forecasts for all sites start with the next daily run; "
+            f"use get_forecast for the {FORECAST_SITE}."
+        }
+    backtest = data.backtest
+    overview = sites_overview(
+        global_log, data.log, _counts(data), data.today,
+        backtest[backtest["model"] == GLOBAL_MODEL_NAME], backtest[backtest["model"] == MODEL_NAME],
+    )
+    return {
+        "forecast_date": f"{global_log['forecast_date'].max():%Y-%m-%d}",
+        "note": (
+            "change_vs_typical: against the same weekday over the four weeks before. typical_error: "
+            "WAPE of the last 4 weeks, or of a backtest (forecasts made afterwards for the last 90 days "
+            "with the weather forecast of each evening) while a site has under a week of real forecasts. "
+            f"The {FORECAST_SITE} has its own model, all other sites share one."
         ),
+        "sites": [
+            {
+                "site": row.site_name,
+                "predicted_trips": _number(row.prediction),
+                "change_vs_typical": _number(row.vs_typical, 3),
+                "typical_error": _number(row.error, 3),
+                "error_from": row.error_basis or None,
+                "note": row.note or None,
+            }
+            for row in overview.itertuples()
+        ],
     }
 
 
-def get_forecast_accuracy(data: AssistantData, last_days: int = 28) -> dict:
-    """Error of the logged daily forecasts over the last days, and the
-    cross-validation result for comparison."""
+def get_forecast_accuracy(data: AssistantData, last_days: int = 28, site: str = FORECAST_SITE) -> dict:
+    """Error of the logged daily forecasts at a site over the last days, with
+    the backtest (and, for the Warendorfer Straße, the cross-validation) for
+    comparison."""
     if not isinstance(last_days, int) or not 1 <= last_days <= 366:
         raise ToolError(f"last_days must be a whole number between 1 and 366, got {last_days!r}.")
-    evaluated = evaluate_forecasts(data.log, data.daily)
+    name = _site(data, site)
+    log, daily, backtest, _ = _site_forecasts(data, name)
+    evaluated = evaluate_forecasts(log, daily)
     since = pd.Timestamp(data.today) - pd.Timedelta(days=last_days)
     evaluated = evaluated[evaluated["forecast_date"] >= since].sort_values("forecast_date")
-    name, mae, wape = CV_RESULTS[-1]
-    result = {
-        "site": FORECAST_SITE,
-        "days_evaluated": len(evaluated),
-        "cross_validation": {
-            "model": name,
+    result = {"site": name, "days_evaluated": len(evaluated)}
+    tested = evaluate_forecasts(backtest, daily)
+    if not tested.empty:
+        result["backtest"] = {
+            "days": len(tested),
+            "wape": _number(tested["error"].abs().sum() / tested["actual"].sum(), 3),
+            "note": "forecasts made afterwards for the last 90 days, with the weather forecast of "
+            "each evening",
+        }
+    if name == FORECAST_SITE:
+        cv_name, mae, wape = CV_RESULTS[-1]
+        result["cross_validation"] = {
+            "model": cv_name,
             "mae_trips": mae,
             "wape": wape,
             "note": "2023 to 2026 with measured weather, so a lower bound for the daily forecast",
-        },
-    }
+        }
     if evaluated.empty:
         result["note"] = "No forecast day with complete counts in this period yet."
         return result
@@ -362,18 +459,29 @@ TOOL_SPECS = [
     ),
     ToolSpec(
         "get_forecast",
-        f"The latest daily forecast for the {FORECAST_SITE}, with the same weekday last week, a "
-        "typical such day, the weather forecast and the calendar (holidays, lectures).",
-        _schema({}, []),
+        "The latest daily forecast at one counting site, with the same weekday last week, a typical "
+        f"such day, the weather forecast and the calendar (holidays, lectures). If the user names no "
+        f"site, use the {FORECAST_SITE}, the site with the most detailed forecast.",
+        _schema({"site": _SITE}, ["site"]),
         get_forecast,
     ),
     ToolSpec(
+        "get_forecasts_all_sites",
+        "The latest daily forecast at all counting sites, the largest first, with the change against "
+        "a typical day and the typical error of each site. For questions comparing sites.",
+        _schema({}, []),
+        get_forecasts_all_sites,
+    ),
+    ToolSpec(
         "get_forecast_accuracy",
-        "How far off the daily forecasts were over the last days (mean error, WAPE, bias, each "
-        "day), and the cross-validation result for comparison.",
+        "How far off the daily forecasts at one site were over the last days (mean error, WAPE, bias, "
+        f"each day), with a backtest and, for the {FORECAST_SITE}, the cross-validation for comparison.",
         _schema(
-            {"last_days": {"type": "integer", "description": "Number of days back, 1 to 366"}},
-            ["last_days"],
+            {
+                "last_days": {"type": "integer", "description": "Number of days back, 1 to 366"},
+                "site": _SITE,
+            },
+            ["last_days", "site"],
         ),
         get_forecast_accuracy,
     ),

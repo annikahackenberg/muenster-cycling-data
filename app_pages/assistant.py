@@ -21,7 +21,7 @@ from radmuenster.assistant import (
 )
 from radmuenster.assistant_tools import AssistantData
 from radmuenster.forecast import today_in_muenster
-from radmuenster.published import read_forecast_log, read_status
+from radmuenster.published import read_backtest, read_forecast_log, read_sites_forecast_log, read_status
 from radmuenster.static_page import DAILY_DATA, SITES_DATA, WEATHER_DATA, read_published
 
 # The cached data is reloaded at most once an hour
@@ -59,6 +59,8 @@ def load_data(today: date) -> AssistantData:
         log=read_forecast_log(),
         today=today,
         warnings=read_status()["warnings"],
+        sites_log=read_sites_forecast_log(),
+        backtest=read_backtest(),
     )
 
 

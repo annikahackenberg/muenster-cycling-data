@@ -206,6 +206,13 @@ This finds outages the city did not flag, for example at the Wolbecker Straße, 
 counted almost nothing since August 2025. Changes in how a site counts (like the jump at the Warendorfer
 Straße in October 2025) are not detected.
 
+Partial outages, where a site counts about half of its usual trips or less, are harder: a rule cannot
+tell them from building works or a leisure route in bad weather. So the daily monitoring only warns when
+a site is far below its usual count compared with the other sites for three days in a row (the usual
+count is the median of the same weekday in the last weeks; dividing by the median of the other sites takes
+out rain, holidays and the season). Whether it is an outage is decided by hand; real outages go into
+`SITE_FAULTS` in [sites.py](src/radmuenster/sites.py) and are flagged as partial outages.
+
 The daily job also builds a static version of the page ([static_page.py](src/radmuenster/static_page.py)) and
 publishes it on GitHub Pages, without a commit. It is a single HTML file with the same chart, embedded as a
 Vega-Lite spec, so it loads instantly and never sleeps. It shows the forecast in the same context as the
@@ -231,5 +238,5 @@ the app reads instead of downloading them from the city.
    counts, weather and forecasts)
 8. [ ] Forecasts for more counting sites
    - [x] Compare one model per site with one global model for all sites
-   - [ ] Flag partial outages that the current flags miss
+   - [x] Flag partial outages that the current flags miss (a monitoring warning, decided by hand)
    - [ ] Daily forecasts for all sites with the global model

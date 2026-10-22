@@ -62,6 +62,13 @@ def test_day_reasons_explain_the_flag():
     assert day_reasons(table).tolist() == ["no data", "channel outage: channel 1 counted nothing", ""]
 
 
+def test_day_reasons_explain_a_known_fault_with_its_reason():
+    table = make_sites_daily({"A": [100.0] * 2})
+    table["known_fault"] = False
+    flag(table, "A", "2026-01-06", "2026-01-06", "known_fault", note="half the usual count")
+    assert day_reasons(table).tolist() == ["", "partial outage: half the usual count"]
+
+
 def test_aggregate_weeks_with_and_without_flagged_days():
     # Monday 5 January to Sunday 11 January: one week; the outage halves two days
     table = make_sites_daily({"A": [100.0, 100.0, 50.0, 50.0, 100.0, 100.0, 100.0]})

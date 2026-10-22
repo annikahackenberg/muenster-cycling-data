@@ -2,7 +2,14 @@ import numpy as np
 import pandas as pd
 
 from radmuenster.data import parse_month_channels
-from radmuenster.sites import SITES, SITES_BY_ID, load_all_sites, to_site_daily
+from radmuenster.sites import (
+    SITES,
+    SITES_BY_ID,
+    load_all_sites,
+    low_count_days,
+    mark_site_faults,
+    to_site_daily,
+)
 
 SITE = "300037405"
 CSV = (
@@ -101,3 +108,75 @@ def test_load_all_sites_reports_broken_sites_and_keeps_the_others(monkeypatch):
     assert failed == {"Hammer Straße": "ValueError: new file format"}
     assert table["site_id"].nunique() == len(SITES) - 1
     assert list(table.columns[:3]) == ["site_id", "site_name", "date"]
+
+
+def make_sites(n_sites: int = 6, start: str = "2025-08-04", weeks: int = 12) -> pd.DataFrame:
+    """Table like load_all_sites without flags: sites of different size with
+    the same weekly pattern (weekends half as busy) and a little noise."""
+    days = pd.date_range(start, periods=7 * weeks, freq="D")
+    rng = np.random.default_rng(0)
+    frames = []
+    for i in range(n_sites):
+        weekly = np.where(days.dayofweek >= 5, 0.5, 1.0)
+        frames.append(
+            pd.DataFrame(
+                {
+                    "site_id": f"s{i}",
+                    "site_name": f"Site {i}",
+                    "date": days,
+                    "total": 1000.0 * (i + 1) * weekly * rng.normal(1.0, 0.03, len(days)),
+                    "note": "",
+                    "ok": True,
+                }
+            )
+        )
+    return pd.concat(frames, ignore_index=True)
+
+
+def scale(table: pd.DataFrame, site_id: str | None, first: str, last: str, factor: float) -> None:
+    """Multiply the counts of one site (None: all sites) between two days."""
+    rows = table["date"].between(first, last)
+    if site_id is not None:
+        rows &= table["site_id"] == site_id
+    table.loc[rows, "total"] *= factor
+
+
+def low_dates(table: pd.DataFrame, site_id: str) -> list[str]:
+    low = table[low_count_days(table) & (table["site_id"] == site_id)]
+    return [f"{day:%Y-%m-%d}" for day in low["date"]]
+
+
+def test_low_count_days_finds_a_site_far_below_the_others():
+    table = make_sites()
+    scale(table, "s0", "2025-09-15", "2025-09-19", 0.3)
+    assert low_dates(table, "s0") == [f"2025-09-{day}" for day in range(15, 20)]
+    assert low_count_days(table)[table["site_id"] != "s0"].sum() == 0
+
+
+def test_low_count_days_ignore_short_and_city_wide_drops():
+    table = make_sites()
+    # Two days are not enough
+    scale(table, "s0", "2025-09-15", "2025-09-16", 0.3)
+    # Rain everywhere: all sites lower alike
+    scale(table, None, "2025-09-22", "2025-09-26", 0.6)
+    assert low_count_days(table).sum() == 0
+
+
+def test_low_count_days_keep_a_run_across_flagged_days():
+    table = make_sites()
+    scale(table, "s0", "2025-09-15", "2025-09-19", 0.3)
+    # The city flagged the middle day: it is not judged, but does not end the run
+    table.loc[(table["site_id"] == "s0") & (table["date"] == "2025-09-17"), "ok"] = False
+    assert low_dates(table, "s0") == ["2025-09-15", "2025-09-16", "2025-09-18", "2025-09-19"]
+
+
+def test_mark_site_faults_flags_the_days_with_their_reason():
+    table = make_sites(n_sites=2, weeks=1)
+    marked = mark_site_faults(table, [("s1", "2025-08-05", "2025-08-06", "half the usual count")])
+    fault = marked["known_fault"]
+    assert marked.loc[fault, ["site_id", "date"]].astype(str).values.tolist() == [
+        ["s1", "2025-08-05"],
+        ["s1", "2025-08-06"],
+    ]
+    assert (marked.loc[fault, "note"] == "half the usual count").all()
+    assert (marked["ok"] == ~fault).all()

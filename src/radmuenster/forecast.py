@@ -145,7 +145,7 @@ def main() -> None:
     record = forecast_day(daily, weather, target, made_on=today)
     log = save_forecast(record)
     sites_daily, failed_sites = load_all_sites(end=today)
-    warnings = run_checks(daily, log, today) + [
+    warnings = run_checks(daily, log, today, sites_daily) + [
         f"Counting site {name} could not be loaded ({error})." for name, error in failed_sites.items()
     ]
     write_status(warnings, today)

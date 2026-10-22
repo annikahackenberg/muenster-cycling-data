@@ -12,9 +12,12 @@ from radmuenster.dashboard import APP_CONTENT_WIDTH
 # default centered layout limits the content to about 730 pixels
 st.set_page_config(page_title="Münster bicycle traffic", page_icon="🚲", layout="wide")
 # ... but not the whole width of a large screen. The 10rem are the side
-# padding of the wide layout (5rem on each side)
+# padding of the wide layout (5rem on each side). The bottom container holds
+# the chat input of the assistant page and needs the same limit.
 st.html(f"""<style>
-[data-testid="stMainBlockContainer"] {{ max-width: calc({APP_CONTENT_WIDTH}px + 10rem); }}
+[data-testid="stMainBlockContainer"], [data-testid="stBottomBlockContainer"] {{
+    max-width: calc({APP_CONTENT_WIDTH}px + 10rem);
+}}
 </style>""")
 page = st.navigation(
     [

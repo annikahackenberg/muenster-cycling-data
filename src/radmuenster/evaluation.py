@@ -80,11 +80,14 @@ def nrmse(actual: np.ndarray, predicted: np.ndarray) -> float:
     return float(np.sqrt(np.mean((actual - np.asarray(predicted)) ** 2)) / np.mean(actual))
 
 
-def cross_validate(fit_predict: FitPredict, table: pd.DataFrame, **fold_args) -> pd.DataFrame:
+def cross_validate(
+    fit_predict: FitPredict, table: pd.DataFrame, keep: tuple[str, ...] = (), **fold_args
+) -> pd.DataFrame:
     """Predict every test day of every fold of table (the output of training_table).
 
     Returns one row per test day with the columns fold, actual and predicted,
-    indexed by date. Summarise it with summarize; computing the metrics over
+    indexed by date, plus the columns of table named in keep (e.g. the site
+    when table holds several sites, so that dates repeat). Summarise it with summarize; computing the metrics over
     the individual days (instead of averaging fold metrics) keeps short folds,
     e.g. 6 test days during an outage, from weighing as much as a full quarter.
     """
@@ -93,16 +96,17 @@ def cross_validate(fit_predict: FitPredict, table: pd.DataFrame, **fold_args) ->
         train = table[train_mask]
         # The model gets the test features without the target
         test = table[test_mask].drop(columns="count")
-        frames.append(
-            pd.DataFrame(
-                {
-                    "fold": fold,
-                    "actual": table.loc[test_mask, "count"].to_numpy(dtype=float),
-                    "predicted": np.asarray(fit_predict(train, test), dtype=float),
-                },
-                index=test.index,
-            )
+        frame = pd.DataFrame(
+            {
+                "fold": fold,
+                "actual": table.loc[test_mask, "count"].to_numpy(dtype=float),
+                "predicted": np.asarray(fit_predict(train, test), dtype=float),
+            },
+            index=test.index,
         )
+        for column in keep:
+            frame[column] = test[column].to_numpy()
+        frames.append(frame)
     return pd.concat(frames)
 
 

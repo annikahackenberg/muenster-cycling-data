@@ -135,6 +135,11 @@ def test_measurement_period_boundaries(day, expected):
     assert measurement_period(pd.DatetimeIndex([day])).iloc[0] == expected
 
 
+def test_measurement_period_of_a_site_without_known_periods_is_always_0():
+    dates = pd.DatetimeIndex(["2019-01-01", "2026-10-10"])
+    assert (measurement_period(dates, period_starts=()) == 0).all()
+
+
 def test_weather_features_remember_recent_snow():
     days = pd.date_range("2021-02-05", periods=10, freq="D")
     weather = pd.DataFrame({"snowfall": 0.0, "temp_mean": -5.0}, index=days)

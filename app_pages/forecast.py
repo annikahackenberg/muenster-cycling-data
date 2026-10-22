@@ -88,17 +88,22 @@ def metric_row():
     return st.container(horizontal=True)
 
 
-def show_details(site_id: str, log: pd.DataFrame, daily: pd.DataFrame, backtest_wape: float) -> None:
+def show_details(
+    site_id: str, log: pd.DataFrame, daily: pd.DataFrame, backtest_wape: float, note: str = ""
+) -> None:
     """Forecast, context, weather, the last weeks and the accuracy at one site.
 
     log holds the forecasts of this site by the model shown, daily its counts
-    (count, complete), backtest_wape the error of its backtest (NaN without).
+    (count, complete), backtest_wape the error of its backtest (NaN without),
+    note the overview's note on the site, e.g. why its chart has no counts.
     """
     forecast = latest_forecast(log)
     day = forecast["forecast_date"]
     weekday = f"{day:%A}"
     context = forecast_context(forecast, daily)
     st.caption(f"Counting site {SITES_BY_ID[site_id].name} · trips per day, both directions")
+    if note:
+        st.info(f"{note} Its days are flagged, so the chart shows no counts.", icon="ℹ️")
 
     st.subheader(f"{day:%A, %d %B %Y}")
     row = metric_row()
@@ -200,7 +205,7 @@ global_backtest = backtest[backtest["model"] == GLOBAL_MODEL_NAME]
 own_backtest = backtest[backtest["model"] == MODEL_NAME]
 counts = load_site_counts()
 
-backtest_wapes = {}
+backtest_wapes, notes = {}, {}
 if global_log.empty:
     st.info("Forecasts for all sites start with the next daily run; until then, only the Warendorfer Straße.")
     choices = [DEFAULT_SITE]
@@ -233,6 +238,7 @@ else:
             st.caption(f"\\* {name}: {note}")
     choices = overview["site_id"].tolist()
     backtest_wapes = dict(zip(overview["site_id"], overview["error"].where(overview["error_basis"] == "backtest")))
+    notes = dict(zip(overview["site_id"], overview["note"]))
 
 site_id = st.selectbox(
     "Details for", choices, index=choices.index(DEFAULT_SITE) if DEFAULT_SITE in choices else 0,
@@ -246,7 +252,7 @@ if site_id == DEFAULT_SITE:
 else:
     show_details(
         site_id, global_log[global_log["site_id"] == site_id], counts[site_id],
-        backtest_wapes.get(site_id, float("nan")),
+        backtest_wapes.get(site_id, float("nan")), notes.get(site_id, ""),
     )
 
 status = load_status()

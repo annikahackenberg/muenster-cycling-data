@@ -8,12 +8,14 @@ cannot be reached, the local files of the last run are read.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from urllib.error import URLError
 from urllib.request import urlopen
 
 import pandas as pd
 
-from radmuenster.forecast import FORECAST_FILE, read_forecasts
+from radmuenster.backtest import BACKTEST_FILE
+from radmuenster.forecast import FORECAST_FILE, SITES_FORECAST_FILE, read_forecasts
 from radmuenster.monitoring import STATUS_FILE
 
 # The daily job commits to main; reading from there gets the latest forecast
@@ -28,6 +30,28 @@ def read_forecast_log() -> pd.DataFrame:
         return read_forecasts(RAW_URL + FORECAST_FILE.as_posix())
     except URLError:
         return read_forecasts(FORECAST_FILE)
+
+
+def _read_optional_log(path: Path) -> pd.DataFrame:
+    """A log that may not exist yet (before the first daily run after it was
+    added): from main, else the local file, else an empty table."""
+    try:
+        return read_forecasts(RAW_URL + path.as_posix())
+    except URLError:
+        # HTTPError (e.g. 404, not on main yet) is a URLError too
+        if path.exists():
+            return read_forecasts(path)
+        return pd.DataFrame(columns=["forecast_date", "site_id", "site_name", "model", "prediction"])
+
+
+def read_sites_forecast_log() -> pd.DataFrame:
+    """The forecasts of all sites (SITES_FORECAST_FILE)."""
+    return _read_optional_log(SITES_FORECAST_FILE)
+
+
+def read_backtest() -> pd.DataFrame:
+    """The backtest of all sites (BACKTEST_FILE)."""
+    return _read_optional_log(BACKTEST_FILE)
 
 
 def read_status() -> dict:

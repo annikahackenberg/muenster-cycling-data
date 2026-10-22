@@ -82,17 +82,19 @@ periods = flagged_periods(rows)
 if periods.empty:
     st.write("No flagged days for these sites in this period.")
 else:
-    st.dataframe(
-        periods,
+    # A static table, not st.dataframe: its cells wrap long text in a narrow
+    # window, where the cells of a dataframe cut it off
+    st.table(
+        pd.DataFrame(
+            {
+                "Site": periods["site_name"],
+                "From": periods["first"].dt.strftime("%-d %b %Y"),
+                "To": periods["last"].dt.strftime("%-d %b %Y"),
+                "Days": periods["days"],
+                "Reason": periods["reason"],
+            }
+        ),
         hide_index=True,
-        width="stretch",
-        column_config={
-            "site_name": "Site",
-            "first": st.column_config.DateColumn("From", format="D MMM YYYY"),
-            "last": st.column_config.DateColumn("To", format="D MMM YYYY"),
-            "days": "Days",
-            "reason": "Reason",
-        },
     )
     st.caption(
         "The last day of each month is left out here: the city cuts it short every month "

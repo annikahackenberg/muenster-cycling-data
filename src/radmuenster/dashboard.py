@@ -16,6 +16,11 @@ from holidays import Germany
 from radmuenster.features import SUBDIVISION, academic_features, calendar_features, lag_features
 from radmuenster.monitoring import evaluate_forecasts
 
+# Width of the content of the Streamlit app in pixels. The wide layout uses
+# the whole window, which spreads a chart too far on a large screen; the
+# centered layout (about 700 pixels) is too narrow for the explore page.
+APP_CONTENT_WIDTH = 1000
+
 COUNTED = "Counted"
 FORECAST = "Forecast"
 

@@ -5,6 +5,8 @@ import pandas as pd
 import pytest
 
 from radmuenster.monitoring import (
+    check_site_bias,
+    evaluate_site_forecasts,
     check_low_counts,
     check_bias,
     check_freshness,
@@ -122,3 +124,51 @@ def test_low_counts_are_fine_without_low_days(monkeypatch):
     table = pd.DataFrame({"site_name": ["A"], "date": pd.to_datetime(["2026-10-17"])})
     monkeypatch.setattr("radmuenster.monitoring.low_count_days", lambda t: pd.Series(False, index=t.index))
     assert check_low_counts(table, date(2026, 10, 18)) is None
+
+
+def make_site_log(site_id: str, name: str, dates: pd.DatetimeIndex, prediction: float) -> pd.DataFrame:
+    return pd.DataFrame(
+        {"forecast_date": dates, "site_id": site_id, "site_name": name, "prediction": prediction}
+    )
+
+
+def make_counts(dates: pd.DatetimeIndex, count: float, incomplete: tuple[str, ...] = ()) -> pd.DataFrame:
+    counts = pd.DataFrame({"count": count, "complete": True}, index=dates)
+    counts.loc[pd.DatetimeIndex(incomplete), "complete"] = False
+    return counts
+
+
+def test_evaluate_site_forecasts_matches_site_and_day():
+    dates = pd.date_range("2026-10-01", periods=3, freq="D")
+    log = pd.concat([make_site_log("a", "A", dates, 110.0), make_site_log("b", "B", dates, 900.0)])
+    counts = {"a": make_counts(dates, 100.0, incomplete=("2026-10-02",)), "b": make_counts(dates[:1], 1000.0)}
+    evaluated = evaluate_site_forecasts(log, counts)
+    # a: the incomplete day is left out; b: only the day with a count
+    assert evaluated[["site_id", "actual", "error"]].values.tolist() == [
+        ["a", 100.0, 10.0],
+        ["a", 100.0, 10.0],
+        ["b", 1000.0, -100.0],
+    ]
+    assert evaluated["pct_error"].round(2).tolist() == [0.1, 0.1, -0.1]
+
+
+def test_site_bias_warns_only_about_biased_sites_with_enough_days():
+    today = date(2026, 10, 30)
+    dates = pd.date_range("2026-10-08", "2026-10-29", freq="D")  # 22 days
+    log = pd.concat(
+        [
+            make_site_log("a", "Biased", dates, 120.0),  # 20 % too high
+            make_site_log("b", "Fine", dates, 105.0),  # 5 %
+            make_site_log("c", "Few days", dates[-5:], 200.0),
+        ]
+    )
+    counts = {site: make_counts(dates, 100.0) for site in "abc"}
+    warning = check_site_bias(log, counts, today)
+    assert "Biased +20%" in warning
+    assert "Fine" not in warning and "Few days" not in warning
+
+
+def test_site_bias_is_fine_without_bias():
+    dates = pd.date_range("2026-10-08", "2026-10-29", freq="D")
+    log = make_site_log("a", "A", dates, 100.0)
+    assert check_site_bias(log, {"a": make_counts(dates, 100.0)}, date(2026, 10, 30)) is None

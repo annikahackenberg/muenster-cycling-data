@@ -14,7 +14,7 @@ import pandas as pd
 from holidays import Germany
 
 from radmuenster.features import SUBDIVISION, academic_features, calendar_features, lag_features
-from radmuenster.monitoring import evaluate_forecasts
+from radmuenster.monitoring import evaluate_forecasts, evaluate_site_forecasts
 
 # Width of the content of the Streamlit app in pixels. The wide layout uses
 # the whole window, which spreads a chart too far on a large screen; the
@@ -126,6 +126,28 @@ def forecast_accuracy(log: pd.DataFrame, daily: pd.DataFrame) -> dict[str, float
         "wape": absolute.sum() / evaluated["actual"].sum(),
         "bias": evaluated["pct_error"].mean(),
     }
+
+
+def site_forecast_accuracy(
+    log: pd.DataFrame, counts: dict[str, pd.DataFrame], since: pd.Timestamp | None = None
+) -> pd.DataFrame:
+    """forecast_accuracy per site, for the forecasts of all sites (counts:
+    site_counts_by_id), from since on. One row per site with at least one
+    evaluated day, indexed by site_id: site_name, n, mae, wape, bias."""
+    evaluated = evaluate_site_forecasts(log, counts)
+    if since is not None:
+        evaluated = evaluated[evaluated["forecast_date"] >= since]
+    evaluated = evaluated.assign(absolute=evaluated["error"].abs())
+    by_site = evaluated.groupby("site_id")
+    return pd.DataFrame(
+        {
+            "site_name": by_site["site_name"].first(),
+            "n": by_site.size(),
+            "mae": by_site["absolute"].mean(),
+            "wape": by_site["absolute"].sum() / by_site["actual"].sum(),
+            "bias": by_site["pct_error"].mean(),
+        }
+    )
 
 
 def weather_metrics(forecast: pd.Series) -> dict[str, str]:

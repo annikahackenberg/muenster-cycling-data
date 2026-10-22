@@ -18,6 +18,7 @@ import numpy as np
 import pandas as pd
 from lightgbm import LGBMRegressor
 
+from radmuenster.data import DEFAULT_SITE
 from radmuenster.evaluation import FitPredict
 from radmuenster.features import LAGS, training_table
 from radmuenster.models import LIGHTGBM_PARAMS, _lightgbm_inputs, _special_day_factors
@@ -43,6 +44,16 @@ def site_counts(site_daily: pd.DataFrame) -> pd.DataFrame:
         },
         index=pd.DatetimeIndex(site_daily["date"], name="date"),
     )
+
+
+def site_counts_by_id(sites_daily: pd.DataFrame, daily: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    """Daily counts (count, complete) of every site in sites_daily
+    (load_all_sites), by site id. The Warendorfer Straße takes daily
+    (to_daily): only it knows the direction faults of that site."""
+    return {
+        site_id: daily[["count", "complete"]] if site_id == DEFAULT_SITE else site_counts(rows)
+        for site_id, rows in sites_daily.groupby("site_id")
+    }
 
 
 def sites_table(

@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 
 from radmuenster.features import PERIOD_STARTS
-from radmuenster.multi_site import global_lightgbm, per_site, site_counts, sites_table
+from radmuenster.multi_site import global_lightgbm, per_site, site_counts, site_counts_by_id, sites_table
 
 START = "2022-01-01"
 DAYS = 3 * 365
@@ -70,3 +70,23 @@ def test_global_lightgbm_predicts_each_site_on_its_own_scale():
     predicted = global_lightgbm(train, test.drop(columns="count"))
     error = np.abs(predicted / test["count"].to_numpy() - 1)
     assert np.median(error) < 0.05
+
+
+def test_site_counts_by_id_takes_the_own_counts_of_the_warendorfer_strasse():
+    site_daily = pd.DataFrame(
+        {
+            "site_id": ["100034983", "x"],
+            "date": pd.to_datetime(["2024-01-01", "2024-01-01"]),
+            "total": [1000.0, 50.0],
+            "ok": [True, True],
+        }
+    )
+    # to_daily of the Warendorfer Straße found a direction fault
+    daily = pd.DataFrame(
+        {"count": [1000.0], "complete": [False], "count_in": [0.0]},
+        index=pd.DatetimeIndex(["2024-01-01"], name="date"),
+    )
+    counts = site_counts_by_id(site_daily, daily)
+    assert counts["100034983"]["complete"].tolist() == [False]
+    assert list(counts["100034983"].columns) == ["count", "complete"]
+    assert counts["x"]["count"].tolist() == [50.0]

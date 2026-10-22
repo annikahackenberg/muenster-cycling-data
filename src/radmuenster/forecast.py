@@ -20,8 +20,8 @@ import pandas as pd
 from radmuenster.data import DEFAULT_SITE, load_intervals, to_daily
 from radmuenster.features import MIN_LAG, PERIOD_STARTS, build_features, training_table
 from radmuenster.models import fit_lightgbm, predict_lightgbm
-from radmuenster.monitoring import STATUS_FILE, run_checks, write_status
-from radmuenster.multi_site import fit_global_lightgbm, site_counts, sites_table
+from radmuenster.monitoring import STATUS_FILE, check_site_bias, run_checks, write_status
+from radmuenster.multi_site import fit_global_lightgbm, site_counts_by_id, sites_table
 from radmuenster.sites import SITES_BY_ID, load_all_sites
 from radmuenster.static_page import (
     DAILY_DATA,
@@ -208,16 +208,15 @@ def main() -> None:
     ]
     # The forecast of the Warendorfer Straße above must not depend on this one
     try:
-        counts = {
-            site_id: daily if site_id == DEFAULT_SITE else site_counts(rows)
-            for site_id, rows in sites_daily.groupby("site_id")
-        }
+        counts = site_counts_by_id(sites_daily, daily)
         sites_record = forecast_sites(counts, weather, target, made_on=today)
-        save_forecast(sites_record, SITES_FORECAST_FILE, key=("forecast_date", "site_id", "model"))
+        sites_log = save_forecast(sites_record, SITES_FORECAST_FILE, key=("forecast_date", "site_id", "model"))
+        warnings.append(check_site_bias(sites_log, counts, today))
     # Deliberately broad, like a broken site in load_all_sites
     except Exception as error:
         sites_record = pd.DataFrame()
         warnings.append(f"The forecasts for all sites failed ({type(error).__name__}: {error}).")
+    warnings = [warning for warning in warnings if warning is not None]
     write_status(warnings, today)
     page = write_site(render_page(daily, log, warnings, today, weather))
     sites_data = write_data(sites_daily, SITES_DATA)

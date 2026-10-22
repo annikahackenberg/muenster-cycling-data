@@ -13,6 +13,7 @@ from radmuenster.dashboard import (
     forecast_context,
     is_stale,
     latest_forecast,
+    site_forecast_accuracy,
     weather_metrics,
 )
 
@@ -111,3 +112,21 @@ def test_weather_metrics_show_snow_only_when_forecast():
 )
 def test_day_notes(day, expected):
     assert day_notes(pd.Timestamp(day)) == expected
+
+
+def test_site_forecast_accuracy_per_site_and_since():
+    dates = pd.date_range("2026-10-01", periods=4, freq="D")
+    log = pd.DataFrame(
+        {
+            "forecast_date": list(dates) * 2,
+            "site_id": ["a"] * 4 + ["b"] * 4,
+            "site_name": ["A"] * 4 + ["B"] * 4,
+            "prediction": [110.0, 90.0, 110.0, 90.0, 1000.0, 1000.0, 1000.0, 1200.0],
+        }
+    )
+    counts = {s: pd.DataFrame({"count": 100.0 if s == "a" else 1000.0, "complete": True}, index=dates) for s in "ab"}
+    accuracy = site_forecast_accuracy(log, counts)
+    assert accuracy.loc["a", ["n", "mae", "wape", "bias"]].tolist() == pytest.approx([4, 10.0, 0.1, 0.0])
+    assert accuracy.loc["b", "site_name"] == "B"
+    recent = site_forecast_accuracy(log, counts, since=pd.Timestamp("2026-10-04"))
+    assert recent.loc["b", ["n", "bias"]].tolist() == pytest.approx([1, 0.2])

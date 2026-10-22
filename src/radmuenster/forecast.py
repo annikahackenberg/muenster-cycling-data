@@ -166,8 +166,9 @@ DATE_COLUMNS = ["forecast_date", "made_on", "latest_complete_day"]
 
 
 def read_forecasts(path: Path = FORECAST_FILE) -> pd.DataFrame:
-    """The forecast log, with the date columns as timestamps."""
-    return pd.read_csv(path, parse_dates=DATE_COLUMNS)
+    """The forecast log, with the date columns as timestamps. Site ids stay
+    text: read as numbers, they would not match the ids of the counts."""
+    return pd.read_csv(path, parse_dates=DATE_COLUMNS, dtype={"site_id": str})
 
 
 def save_forecast(

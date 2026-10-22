@@ -172,3 +172,13 @@ def test_site_bias_is_fine_without_bias():
     dates = pd.date_range("2026-10-08", "2026-10-29", freq="D")
     log = make_site_log("a", "A", dates, 100.0)
     assert check_site_bias(log, {"a": make_counts(dates, 100.0)}, date(2026, 10, 30)) is None
+
+
+def test_site_bias_is_not_thrown_off_by_a_day_with_almost_no_count():
+    dates = pd.date_range("2026-10-08", "2026-10-29", freq="D")
+    log = make_site_log("a", "A", dates, 100.0)
+    counts = make_counts(dates, 100.0)
+    # The counter almost stopped on one day: 1 trip instead of 100
+    counts.loc["2026-10-20", "count"] = 1.0
+    # Mean percentage error: +450 %; errors over counts: +4.7 %
+    assert check_site_bias(log, {"a": counts}, date(2026, 10, 30)) is None

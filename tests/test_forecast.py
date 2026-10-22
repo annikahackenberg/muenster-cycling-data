@@ -128,3 +128,9 @@ def test_save_forecast_keeps_one_row_per_site(tmp_path):
     rerun = make_record(date(2026, 10, 13), 150).assign(site_id="a")
     log = save_forecast(rerun, path, key=key)
     assert log[["site_id", "prediction"]].values.tolist() == [["a", 150], ["b", 200]]
+
+
+def test_read_forecasts_keeps_site_ids_as_text(tmp_path):
+    path = tmp_path / "sites.csv"
+    save_forecast(make_record(date(2026, 10, 13), 100).assign(site_id="100034983"), path)
+    assert read_forecasts(path)["site_id"].tolist() == ["100034983"]

@@ -169,13 +169,18 @@ def evaluate_site_forecasts(log: pd.DataFrame, counts: dict[str, pd.DataFrame]) 
 def check_site_bias(log: pd.DataFrame, counts: dict[str, pd.DataFrame], today: date) -> str | None:
     """Warn about sites whose forecasts of the last BIAS_WINDOW_DAYS were on
     average more than MAX_SITE_BIAS too high or too low (at least
-    MIN_EVALUATED_DAYS forecasts), in one warning for all of them."""
+    MIN_EVALUATED_DAYS forecasts), in one warning for all of them.
+
+    The bias is the sum of the errors over the sum of the actual counts, not
+    the mean percentage error: a day on which a counter almost stopped (29
+    trips at the Hammer Straße on 1 August 2026) would make that +24,000 %.
+    """
     evaluated = evaluate_site_forecasts(log, counts)
     start = pd.Timestamp(today) - pd.Timedelta(days=BIAS_WINDOW_DAYS)
     recent = evaluated[evaluated["forecast_date"] >= start]
     sites = []
     for name, days in recent.groupby("site_name"):
-        bias = days["pct_error"].mean()
+        bias = days["error"].sum() / days["actual"].sum()
         if len(days) >= MIN_EVALUATED_DAYS and abs(bias) > MAX_SITE_BIAS:
             sites.append(f"{name} {bias:+.0%}")
     if not sites:

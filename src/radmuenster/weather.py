@@ -104,3 +104,60 @@ def load_weather_forecast(days: int = 2) -> pd.DataFrame:
     resp = requests.get(FORECAST_URL, params=params, timeout=30)
     resp.raise_for_status()
     return parse_weather_json(resp.text)
+
+
+PREVIOUS_RUNS_URL = "https://previous-runs-api.open-meteo.com/v1/forecast"
+
+# Hourly Open-Meteo variables of the previous runs API, forecast 24 hours ahead
+PREVIOUS_DAY_VARIABLES = {
+    "temperature_2m_previous_day1": "temperature",
+    "precipitation_previous_day1": "precipitation",
+    "snowfall_previous_day1": "snowfall",
+    "sunshine_duration_previous_day1": "sunshine",
+    "wind_speed_10m_previous_day1": "wind",
+}
+
+
+def daily_from_hourly(hourly: pd.DataFrame) -> pd.DataFrame:
+    """Daily weather with the columns of DAILY_VARIABLES from hourly values
+    (columns of PREVIOUS_DAY_VARIABLES, local time as index).
+
+    The same aggregation as Open-Meteo's daily values: a rain hour is an hour
+    with any precipitation; sunshine in hours.
+    """
+    days = hourly.groupby(hourly.index.normalize().rename("date"))
+    return pd.DataFrame(
+        {
+            "temp_mean": days["temperature"].mean(),
+            "temp_max": days["temperature"].max(),
+            "precipitation": days["precipitation"].sum(),
+            "precipitation_hours": days["precipitation"].apply(lambda hours: (hours > 0).sum()).astype(float),
+            "snowfall": days["snowfall"].sum(),
+            "sunshine": days["sunshine"].sum() / 3600,
+            "wind_max": days["wind"].max(),
+        }
+    )
+
+
+def load_weather_previous_day(start: date, end: date) -> pd.DataFrame:
+    """The weather forecast for each day from start to end as it looked one
+    day earlier, like the forecast the daily job had in the evening.
+
+    From Open-Meteo's previous runs API (archived since January 2024): each
+    hour as forecast 24 hours ahead. Only hourly values are archived, so the
+    daily values are built with daily_from_hourly.
+    """
+    params = {
+        "latitude": LATITUDE,
+        "longitude": LONGITUDE,
+        "start_date": start.isoformat(),
+        "end_date": end.isoformat(),
+        "hourly": ",".join(PREVIOUS_DAY_VARIABLES),
+        "timezone": "Europe/Berlin",
+    }
+    resp = requests.get(PREVIOUS_RUNS_URL, params=params, timeout=60)
+    resp.raise_for_status()
+    hourly = json.loads(resp.text)["hourly"]
+    table = pd.DataFrame({ours: hourly[theirs] for theirs, ours in PREVIOUS_DAY_VARIABLES.items()})
+    table.index = pd.DatetimeIndex(hourly["time"])
+    return daily_from_hourly(table)

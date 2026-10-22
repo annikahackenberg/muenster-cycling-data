@@ -133,7 +133,11 @@ def site_forecast_accuracy(
 ) -> pd.DataFrame:
     """forecast_accuracy per site, for the forecasts of all sites (counts:
     site_counts_by_id), from since on. One row per site with at least one
-    evaluated day, indexed by site_id: site_name, n, mae, wape, bias."""
+    evaluated day, indexed by site_id: site_name, n, mae, wape, bias.
+
+    The bias is the sum of the errors over the sum of the actual counts (see
+    check_site_bias), not the mean percentage error of forecast_accuracy.
+    """
     evaluated = evaluate_site_forecasts(log, counts)
     if since is not None:
         evaluated = evaluated[evaluated["forecast_date"] >= since]
@@ -145,7 +149,7 @@ def site_forecast_accuracy(
             "n": by_site.size(),
             "mae": by_site["absolute"].mean(),
             "wape": by_site["absolute"].sum() / by_site["actual"].sum(),
-            "bias": by_site["pct_error"].mean(),
+            "bias": by_site["error"].sum() / by_site["actual"].sum(),
         }
     )
 

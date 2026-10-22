@@ -146,3 +146,26 @@ def test_read_published_falls_back_to_the_local_file(tmp_path, monkeypatch):
     table = pd.DataFrame({"total": [1.0, 2.0]})
     write_data(table, SITES_DATA, tmp_path)
     assert read_published(SITES_DATA, tmp_path).equals(table)
+
+
+def test_page_shows_all_sites_with_their_notes_only_when_there_are_forecasts():
+    overview = pd.DataFrame(
+        {
+            "site_id": ["a", "b"],
+            "site_name": ["Promenade", "Wolbecker Straße"],
+            "prediction": [14000, 6400],
+            "typical": [13000.0, None],
+            "vs_typical": [0.077, float("nan")],
+            "error": [0.07, float("nan")],
+            "error_basis": ["backtest", ""],
+            "note": ["", "No usable counts since 06 Aug 2025."],
+        }
+    )
+    html = render_page(make_daily(), make_log(), [], TODAY, make_weather(), overview)
+    assert 'href="#sites"' in html and 'id="sites"' in html
+    assert "<tr><td>Promenade</td><td>14,000</td><td>+8%</td><td>7% ¹</td></tr>" in html
+    assert "<tr><td>Wolbecker Straße *</td><td>6,400</td><td>–</td><td>–</td></tr>" in html
+    assert "* Wolbecker Straße: No usable counts since 06 Aug 2025." in html
+
+    without = render()
+    assert 'id="sites"' not in without and 'href="#sites"' not in without

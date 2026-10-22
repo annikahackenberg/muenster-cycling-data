@@ -22,17 +22,15 @@ from __future__ import annotations
 
 import argparse
 from datetime import date, timedelta
-from pathlib import Path
 
 import pandas as pd
 
 from radmuenster.data import DEFAULT_SITE, load_intervals, to_daily
-from radmuenster.forecast import MODEL_NAME, forecast_day, forecast_sites
+from radmuenster.forecast import BACKTEST_FILE, MODEL_NAME, forecast_day, forecast_sites
 from radmuenster.multi_site import site_counts_by_id
 from radmuenster.sites import SITES_BY_ID, load_all_sites
 from radmuenster.weather import load_weather, load_weather_previous_day
 
-BACKTEST_FILE = Path("forecasts/sites_backtest.csv")
 DEFAULT_DAYS = 90
 
 

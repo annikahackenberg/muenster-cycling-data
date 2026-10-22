@@ -14,8 +14,7 @@ from urllib.request import urlopen
 
 import pandas as pd
 
-from radmuenster.backtest import BACKTEST_FILE
-from radmuenster.forecast import FORECAST_FILE, SITES_FORECAST_FILE, read_forecasts
+from radmuenster.forecast import BACKTEST_FILE, FORECAST_FILE, SITES_FORECAST_FILE, read_forecasts
 from radmuenster.monitoring import STATUS_FILE
 
 # The daily job commits to main; reading from there gets the latest forecast

@@ -20,6 +20,7 @@ import pandas as pd
 from radmuenster.data import DEFAULT_SITE, load_intervals, to_daily
 from radmuenster.features import MIN_LAG, PERIOD_STARTS, build_features, training_table
 from radmuenster.models import fit_lightgbm, predict_lightgbm
+from radmuenster.dashboard import sites_overview
 from radmuenster.monitoring import STATUS_FILE, check_site_bias, run_checks, write_status
 from radmuenster.multi_site import fit_global_lightgbm, site_counts_by_id, sites_table
 from radmuenster.sites import SITES_BY_ID, load_all_sites
@@ -49,6 +50,8 @@ MODEL_NAME = "lightgbm"
 # forecast is logged here too, to compare the two on real forecasts.
 SITES_FORECAST_FILE = Path("forecasts/sites_forecasts.csv")
 GLOBAL_MODEL_NAME = "global_lightgbm"
+# Forecasts made afterwards by backtest.py; never mixed into the logs above
+BACKTEST_FILE = Path("forecasts/sites_backtest.csv")
 
 
 def today_in_muenster(now: datetime | None = None) -> date:
@@ -196,6 +199,15 @@ def save_forecast(
     return log
 
 
+def _read_backtest(path: Path = BACKTEST_FILE) -> tuple[pd.DataFrame | None, pd.DataFrame | None]:
+    """The backtest (backtest.py) of the global model and of the own model of
+    the Warendorfer Straße; None if it has not been run."""
+    if not path.exists():
+        return None, None
+    backtest = read_forecasts(path)
+    return backtest[backtest["model"] == GLOBAL_MODEL_NAME], backtest[backtest["model"] == MODEL_NAME]
+
+
 def main() -> None:
     today = today_in_muenster()
     target = today + pd.Timedelta(days=1)
@@ -213,13 +225,14 @@ def main() -> None:
         sites_record = forecast_sites(counts, weather, target, made_on=today)
         sites_log = save_forecast(sites_record, SITES_FORECAST_FILE, key=("forecast_date", "site_id", "model"))
         warnings.append(check_site_bias(sites_log, counts, today))
+        overview = sites_overview(sites_log, log, counts, today, *_read_backtest())
     # Deliberately broad, like a broken site in load_all_sites
     except Exception as error:
-        sites_record = pd.DataFrame()
+        sites_record, overview = pd.DataFrame(), None
         warnings.append(f"The forecasts for all sites failed ({type(error).__name__}: {error}).")
     warnings = [warning for warning in warnings if warning is not None]
     write_status(warnings, today)
-    page = write_site(render_page(daily, log, warnings, today, weather))
+    page = write_site(render_page(daily, log, warnings, today, weather, overview))
     sites_data = write_data(sites_daily, SITES_DATA)
     write_data(daily, DAILY_DATA)
     write_data(weather, WEATHER_DATA)

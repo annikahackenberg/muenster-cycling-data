@@ -186,6 +186,39 @@ def _context_section(forecast: pd.Series, daily: pd.DataFrame) -> tuple[str, str
     return delta, html
 
 
+def _sites_section(overview: pd.DataFrame | None) -> str:
+    """Tomorrow at all sites (sites_overview), as a table with its notes;
+    empty without forecasts for all sites."""
+    if overview is None or overview.empty:
+        return ""
+    rows = []
+    for site in overview.itertuples():
+        star = " *" if site.note else ""
+        change = "–" if pd.isna(site.vs_typical) else f"{site.vs_typical:+.0%}"
+        error = "–" if pd.isna(site.error) else f"{site.error:.0%}" + (" ¹" if site.error_basis == "backtest" else "")
+        rows.append(
+            f"<tr><td>{escape(site.site_name)}{star}</td><td>{site.prediction:,}</td>"
+            f"<td>{change}</td><td>{error}</td></tr>"
+        )
+    notes = "".join(
+        f'<p class="note">* {escape(site.site_name)}: {escape(site.note)}</p>'
+        for site in overview.itertuples()
+        if site.note
+    )
+    return f"""<h2 id="sites">Tomorrow at all sites</h2>
+<table>
+  <thead><tr><th>Site</th><th>Forecast</th><th>vs. typical</th><th>Error</th></tr></thead>
+  <tbody>
+{chr(10).join(rows)}
+  </tbody>
+</table>
+<p class="note">vs. typical: compared with the same weekday over the four weeks before. Error: how far the
+forecasts were off on average (WAPE) in the last 4 weeks; ¹ until a site has a week of real forecasts, from a
+backtest of the last 90 days with the weather forecast of each evening. The Warendorfer Straße has its own
+model, all other sites share one.</p>
+{notes}"""
+
+
 def _monitoring_section(warnings: list[str], today: date) -> str:
     if not warnings:
         return f'<p class="status ok"><span aria-hidden="true">✓</span> All checks passed on {today:%d %B %Y}.</p>'
@@ -199,12 +232,14 @@ def render_page(
     warnings: list[str],
     today: date,
     weather: pd.DataFrame,
+    overview: pd.DataFrame | None = None,
 ) -> str:
     """The whole page as HTML.
 
     daily is the output of to_daily (all days since 2019, for the findings),
     log the forecast log, warnings the result of run_checks, today the date of
-    the run in Münster, weather the output of load_weather.
+    the run in Münster, weather the output of load_weather, overview the
+    forecasts of all sites (sites_overview; without it, that section is left out).
     """
     forecast = latest_forecast(log)
     start = today - timedelta(weeks=CHART_WEEKS)
@@ -234,6 +269,8 @@ def render_page(
         specs=_json_for_script(specs),
         findings=findings_html,
         table_rows=_table_rows(data),
+        sites=_sites_section(overview),
+        sites_link=' <a href="#sites">All sites</a> ·' if overview is not None and not overview.empty else "",
         accuracy=_accuracy_section(log, daily),
         cv_rows=cv_rows,
         how_steps="\n".join(
@@ -356,10 +393,10 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--grid);
 <h1>Bicycle traffic forecast</h1>
 <p class="sub">Counting site Warendorfer Straße, Münster · trips per day, both directions</p>
 <p class="intro">A daily forecast of bicycle traffic in Münster, built end to end from the city's open counting
-data: data cleaning, analysis, a machine learning model and an automated pipeline that updates this page
-every evening.</p>
+data: data cleaning, analysis, machine learning models and an automated pipeline that updates this page
+every evening, for the Warendorfer Straße in detail and for all 23 counting sites of the city.</p>
 <nav aria-label="Sections">
-  <a href="#forecast">Forecast</a> · <a href="#findings">Insights</a> ·
+  <a href="#forecast">Forecast</a> ·$sites_link <a href="#findings">Insights</a> ·
   <a href="#accuracy">Accuracy</a> · <a href="#monitoring">Monitoring</a> · <a href="#how">How it works</a>
 </nav>
 <p class="app-link"><a href="$streamlit">Open the interactive app</a> to explore and compare all 23
@@ -386,6 +423,8 @@ $table_rows
     </tbody>
   </table>
 </details>
+
+$sites
 
 <h2 id="findings">Insights</h2>
 <p class="note">Key findings of the exploratory analysis, recomputed every evening from all complete days since 2019.</p>

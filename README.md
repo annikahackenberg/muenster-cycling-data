@@ -34,8 +34,10 @@ pytest
 python -m radmuenster
 ```
 
-Downloads all monthly files to `data/raw/` (cached) and writes the daily totals to
-`data/processed/daily_100034983.parquet`. The column `complete` marks days that are complete,
+Downloads all monthly files to `data/raw/` and writes the daily totals to
+`data/processed/daily_100034983.parquet`. Files of finished months are cached; the current ones are
+downloaded from the latest commit of the city's repository, because a link to `main` can return an old
+version of a file from GitHub's cache. The column `complete` marks days that are complete,
 have no fault status, where both directions counted plausibly and that are not in the list of known
 faults (`KNOWN_FAULTS` in [data.py](src/radmuenster/data.py), faults the automatic checks miss).
 

@@ -56,6 +56,9 @@ jobs:
           restore-keys: raw-data-
 
       - name: Forecast tomorrow, run the monitoring, build the page and the data of all sites
+        env:
+          # For the API request in radmuenster.data.latest_commit
+          GITHUB_TOKEN: ${{ github.token }}
         run: python -m radmuenster.forecast
 
       - name: Commit forecast to main

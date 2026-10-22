@@ -47,7 +47,8 @@ MAX_BIAS = 0.08
 
 
 def check_freshness(daily: pd.DataFrame, today: date) -> str | None:
-    """Warn if yesterday has no counts at all: the city's update failed.
+    """Warn if yesterday has no counts at all: the city's update failed, or
+    the download got an old version of the files.
 
     Counts as present: any quarter hour. The last day of a month is always
     cut short by the city, which is no reason for a warning.
@@ -55,7 +56,10 @@ def check_freshness(daily: pd.DataFrame, today: date) -> str | None:
     latest = daily.index[daily["n_intervals"] > 0].max()
     yesterday = pd.Timestamp(today) - pd.Timedelta(days=1)
     if latest < yesterday:
-        return f"No counts since {latest:%Y-%m-%d}: the city's daily update may have failed."
+        return (
+            f"No counts after {latest:%Y-%m-%d} in the downloaded data: the city's daily update "
+            "may have failed, or the download got an old version (compare with the city's repository)."
+        )
     return None
 
 

@@ -6,6 +6,8 @@ License: Datenlizenz Deutschland Namensnennung 2.0 (City of Münster)
 
 from __future__ import annotations
 
+import logging
+import os
 from datetime import date
 from io import StringIO
 from pathlib import Path
@@ -14,7 +16,11 @@ import numpy as np
 import pandas as pd
 import requests
 
-RAW_URL = "https://raw.githubusercontent.com/od-ms/radverkehr-zaehlstellen/main/{site}/{month}.csv"
+# {ref} is a commit of the city's repository (see latest_commit), or "main"
+RAW_URL = "https://raw.githubusercontent.com/od-ms/radverkehr-zaehlstellen/{ref}/{site}/{month}.csv"
+COMMITS_URL = "https://api.github.com/repos/od-ms/radverkehr-zaehlstellen/commits/main"
+
+logger = logging.getLogger(__name__)
 
 # Warendorfer Straße: data since January 2019
 DEFAULT_SITE = "100034983"
@@ -122,13 +128,36 @@ def is_final(month: str, today: date) -> bool:
     return (today - month_end).days >= CACHE_AFTER_DAYS
 
 
-def download_month(site: str, month: str, cache_dir: Path) -> str | None:
-    """Fetch a monthly CSV and cache it locally. None if it does not exist."""
+def latest_commit() -> str:
+    """The newest commit of the city's data repository, or "main" if GitHub
+    does not answer.
+
+    A raw URL with "main" can come from a stale cache: on 20 and 21 October
+    2026 the daily job got files two days old, while the city's repository was
+    up to date. A URL with a commit names exactly one version of the files.
+    Without a token GitHub allows 60 API requests per hour; the daily job
+    passes its GITHUB_TOKEN for more.
+    """
+    headers = {"Accept": "application/vnd.github.sha"}
+    if token := os.environ.get("GITHUB_TOKEN"):
+        headers["Authorization"] = f"Bearer {token}"
+    try:
+        resp = requests.get(COMMITS_URL, headers=headers, timeout=30)
+        resp.raise_for_status()
+        return resp.text.strip()
+    # Deliberately broad: stale data is better than none
+    except Exception as error:
+        logger.warning("Could not get the latest commit of the city's data (%s), using main", error)
+        return "main"
+
+
+def download_month(site: str, month: str, cache_dir: Path, ref: str = "main") -> str | None:
+    """Fetch a monthly CSV at commit ref and cache it locally. None if it does not exist."""
     cache_file = cache_dir / site / f"{month}.csv"
     if cache_file.exists():
         return cache_file.read_text(encoding="utf-8")
 
-    resp = requests.get(RAW_URL.format(site=site, month=month), timeout=30)
+    resp = requests.get(RAW_URL.format(ref=ref, site=site, month=month), timeout=30)
     if resp.status_code == 404:
         return None
     resp.raise_for_status()
@@ -145,12 +174,15 @@ def load_intervals(
     start: date = date(2019, 1, 1),
     end: date | None = None,
     cache_dir: Path = Path("data/raw"),
+    ref: str | None = None,
 ) -> pd.DataFrame:
-    """Load all 15-minute counts of a site for the given period."""
+    """Load all 15-minute counts of a site for the given period, at commit ref
+    of the city's repository (default: the latest)."""
     end = end or date.today()
+    ref = ref or latest_commit()
     frames = []
     for month in month_range(start, end):
-        text = download_month(site, month, cache_dir)
+        text = download_month(site, month, cache_dir, ref)
         if text is not None:
             frames.append(parse_month_csv(text, site))
     if not frames:
@@ -163,15 +195,18 @@ def load_site_intervals(
     start: date,
     end: date | None = None,
     cache_dir: Path = Path("data/raw"),
+    ref: str | None = None,
 ) -> pd.DataFrame:
-    """15-minute total, status and channels of any site (parse_month_channels).
+    """15-minute total, status and channels of any site (parse_month_channels),
+    at commit ref of the city's repository (default: the latest).
 
     Channels that only exist in some months are NaN in the others.
     """
     end = end or date.today()
+    ref = ref or latest_commit()
     frames = []
     for month in month_range(start, end):
-        text = download_month(site, month, cache_dir)
+        text = download_month(site, month, cache_dir, ref)
         if text is not None:
             frames.append(parse_month_channels(text, site))
     if not frames:

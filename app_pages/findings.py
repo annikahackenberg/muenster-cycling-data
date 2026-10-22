@@ -5,6 +5,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
+from radmuenster.dashboard import APP_CONTENT_WIDTH
 from radmuenster.findings import key_findings
 from radmuenster.static_page import DAILY_DATA, WEATHER_DATA, read_published
 
@@ -42,10 +43,11 @@ st.write(
 
 for finding in key_findings(daily, weather):
     st.subheader(finding.title)
-    # A narrower column on wide screens; on a phone the columns stack and
-    # the chart gets the full width
-    column = st.columns([finding.width, 1 - finding.width])[0] if finding.width < 1 else st
-    column.altair_chart(finding.chart(theme), width="stretch")
+    # A fixed width in pixels for charts that need less than the full width:
+    # in a narrow window the chart gets the whole width instead of shrinking
+    # with a column
+    width = round(finding.width * APP_CONTENT_WIDTH) if finding.width < 1 else "stretch"
+    st.altair_chart(finding.chart(theme), width=width)
     st.write(finding.text)
 
 st.caption(

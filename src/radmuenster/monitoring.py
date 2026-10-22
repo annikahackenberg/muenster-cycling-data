@@ -19,6 +19,7 @@ from pathlib import Path
 import pandas as pd
 
 from radmuenster.features import PERIOD_STARTS
+from radmuenster.sites import low_count_days
 
 STATUS_FILE = Path("forecasts/status.json")
 
@@ -44,6 +45,11 @@ MIN_REFERENCE_DAYS = 28  # complete days needed in the reference
 BIAS_WINDOW_DAYS = 28
 MIN_EVALUATED_DAYS = 14
 MAX_BIAS = 0.08
+
+# Low counts at any site (low_count_days): warn about runs that reach into
+# the last LOW_COUNT_RECENT_DAYS; low days at most this far apart belong to
+# the same run
+LOW_COUNT_RECENT_DAYS = 7
 
 
 def check_freshness(daily: pd.DataFrame, today: date) -> str | None:
@@ -140,13 +146,44 @@ def check_bias(log: pd.DataFrame, daily: pd.DataFrame, today: date) -> str | Non
     return None
 
 
-def run_checks(daily: pd.DataFrame, log: pd.DataFrame, today: date) -> list[str]:
-    """All warnings for today; an empty list if everything looks fine."""
+def check_low_counts(sites_daily: pd.DataFrame, today: date) -> str | None:
+    """Warn about sites far below their usual count compared with the other
+    sites in the last days (low_count_days): maybe a partial outage.
+
+    Days in SITE_FAULTS are not ok and so never low: once an outage is
+    entered there, the warning stops.
+    """
+    low = sites_daily.loc[low_count_days(sites_daily), ["site_name", "date"]]
+    recent_start = pd.Timestamp(today) - pd.Timedelta(days=LOW_COUNT_RECENT_DAYS)
+    sites = []
+    for name, days in low.groupby("site_name")["date"]:
+        days = days.sort_values()
+        if days.iloc[-1] < recent_start:
+            continue
+        # The start of the latest run: the first day after the last gap
+        gaps = days.diff() > pd.Timedelta(days=LOW_COUNT_RECENT_DAYS)
+        since = days[gaps].iloc[-1] if gaps.any() else days.iloc[0]
+        sites.append(f"{name} since {since:%Y-%m-%d}")
+    if not sites:
+        return None
+    return (
+        "Far below the usual count compared with the other sites, maybe a partial outage: "
+        + ", ".join(sites)
+        + ". Check them on the explore page; add real outages to SITE_FAULTS in sites.py."
+    )
+
+
+def run_checks(
+    daily: pd.DataFrame, log: pd.DataFrame, today: date, sites_daily: pd.DataFrame | None = None
+) -> list[str]:
+    """All warnings for today; an empty list if everything looks fine.
+    sites_daily (load_all_sites) adds the check of all sites."""
     warnings = [
         check_freshness(daily, today),
         check_incomplete_days(daily, today),
         check_inbound_share(daily, today),
         check_bias(log, daily, today),
+        check_low_counts(sites_daily, today) if sites_daily is not None else None,
     ]
     return [w for w in warnings if w is not None]
 

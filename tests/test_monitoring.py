@@ -5,6 +5,7 @@ import pandas as pd
 import pytest
 
 from radmuenster.monitoring import (
+    check_low_counts,
     check_bias,
     check_freshness,
     check_inbound_share,
@@ -106,3 +107,18 @@ def test_run_checks_and_write_status(tmp_path):
     path = tmp_path / "status.json"
     write_status(warnings, TODAY, path)
     assert json.loads(path.read_text()) == {"checked_on": "2026-10-12", "warnings": warnings}
+
+
+def test_low_counts_warn_about_recent_runs_only(monkeypatch):
+    days = pd.to_datetime(["2026-09-01", "2026-09-02", "2026-10-15", "2026-10-16", "2026-10-17"])
+    table = pd.DataFrame({"site_name": ["Old", "Old", "New", "New", "New"], "date": days})
+    monkeypatch.setattr("radmuenster.monitoring.low_count_days", lambda t: pd.Series(True, index=t.index))
+    warning = check_low_counts(table, date(2026, 10, 18))
+    assert "New since 2026-10-15" in warning
+    assert "Old" not in warning
+
+
+def test_low_counts_are_fine_without_low_days(monkeypatch):
+    table = pd.DataFrame({"site_name": ["A"], "date": pd.to_datetime(["2026-10-17"])})
+    monkeypatch.setattr("radmuenster.monitoring.low_count_days", lambda t: pd.Series(False, index=t.index))
+    assert check_low_counts(table, date(2026, 10, 18)) is None

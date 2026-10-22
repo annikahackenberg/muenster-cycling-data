@@ -14,6 +14,7 @@ labels.
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -21,7 +22,15 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from radmuenster.data import MIN_INTERVALS_PER_DAY, OK_STATUS, latest_commit, load_site_intervals
+from radmuenster.data import (
+    DEFAULT_SITE,
+    KNOWN_FAULTS,
+    MIN_INTERVALS_PER_DAY,
+    OK_STATUS,
+    latest_commit,
+    load_site_intervals,
+)
+from radmuenster.features import SPECIAL_DAYS, calendar_features
 
 
 @dataclass(frozen=True)
@@ -58,6 +67,29 @@ SITES = [
 ]
 
 SITES_BY_ID = {site.id: site for site in SITES}
+
+# Partial outages that no automatic flag catches, checked by hand: the site
+# counted about half or less of its usual count compared with the other
+# sites, from one day to the next, and recovered as suddenly. Candidates come
+# from low_count_days (a monitoring warning) and notebook 03; whether a drop
+# is an outage, building works or the weather stays a human decision.
+# (site id, first day, last day, reason)
+SITE_FAULTS = [
+    ("100035541", "2021-01-31", "2021-03-13", "about half the usual count from one day to the next"),
+    ("100035541", "2021-10-03", "2021-10-17", "about half the usual count, between days the city flagged"),
+    ("100034982", "2024-06-14", "2024-06-27", "about half the usual count from one day to the next"),
+    ("300039328", "2024-06-16", "2024-07-30", "less than half the usual count from one day to the next"),
+    ("300039331", "2024-07-01", "2024-07-04", "less than half the usual count, before days without counts"),
+    ("300039331", "2024-07-21", "2024-07-30", "less than half the usual count from one day to the next"),
+    ("300039331", "2026-05-16", "2026-05-30", "about half the usual count from one day to the next"),
+    ("300037405", "2026-04-04", "2026-05-01", "a third of the usual count or less, some days nothing"),
+    ("300037405", "2026-05-07", "2026-05-22", "nothing or almost nothing for two weeks"),
+    ("300037925", "2026-03-30", "2026-04-14", "almost nothing on some days, a third of the usual on others"),
+    ("300037925", "2026-05-04", "2026-05-20", "nothing on some days, about half the usual on others"),
+    # The Warendorfer Straße: its direction checks (to_daily) need the labelled
+    # directions, which this table does not use
+    (DEFAULT_SITE, "2024-06-03", "2024-06-11", "inbound counted almost nothing"),
+] + [(DEFAULT_SITE, first, last, reason) for first, last, reason in KNOWN_FAULTS]
 
 
 # A channel that carried at least this share of the trips in the 4 weeks
@@ -180,4 +212,110 @@ def load_all_sites(
         daily.insert(0, "site_id", site.id)
         daily.insert(1, "site_name", site.name)
         frames.append(daily)
-    return pd.concat(frames, ignore_index=True), failed
+    return mark_site_faults(pd.concat(frames, ignore_index=True)), failed
+
+
+def mark_site_faults(
+    sites_daily: pd.DataFrame, faults: list[tuple[str, str, str, str]] = SITE_FAULTS
+) -> pd.DataFrame:
+    """sites_daily with the column known_fault (a day in faults), its reason
+    in note and ok updated."""
+    marked = sites_daily.copy()
+    marked.insert(marked.columns.get_loc("note"), "known_fault", False)
+    for site_id, first, last, reason in faults:
+        days = (
+            (marked["site_id"] == site_id)
+            & (marked["date"] >= pd.Timestamp(first))
+            & (marked["date"] <= pd.Timestamp(last))
+        )
+        marked.loc[days, "known_fault"] = True
+        marked.loc[days, "note"] = reason
+    marked["ok"] = marked["ok"] & ~marked["known_fault"]
+    return marked
+
+
+# A day is far below the usual count of its site if its count, relative to
+# the usual count of the site, is below LOW_LEVEL times the same relative
+# count of the other sites (the median over them): rain, holidays and the
+# season lower all sites, a partial outage only one.
+LOW_LEVEL = 0.5
+# ... on at least this many days in a row. Rainy days hit leisure routes
+# harder than the city, but rarely for three days in a row at half the count.
+LOW_RUN_DAYS = 3
+# The usual count: median of the last BASELINE_DAYS usable days of the same
+# weekday, going back at most BASELINE_WEEKS weeks, so that it follows the
+# season, and reaches back to before an outage; with fewer than
+# MIN_BASELINE_DAYS usable days the day is not judged
+BASELINE_DAYS = 4
+BASELINE_WEEKS = 12
+MIN_BASELINE_DAYS = 3
+# Days on which all sites together are below this level are not judged:
+# snow, Christmas and holidays affect the sites too differently
+MIN_CITY_LEVEL = 0.5
+# Low days are left out of the usual counts, which changes the levels;
+# repeat until nothing changes
+MAX_ITERATIONS = 10
+
+
+def _usual_counts(counts: pd.DataFrame, usable: pd.DataFrame) -> pd.DataFrame:
+    """Median of the last BASELINE_DAYS usable days of the same weekday, per
+    site and day (see BASELINE_DAYS); NaN with too few."""
+    usable_counts = counts.where(usable)
+    # weeks x days x sites, the most recent week first
+    earlier = np.stack([usable_counts.shift(7 * k).to_numpy() for k in range(1, BASELINE_WEEKS + 1)])
+    present = ~np.isnan(earlier)
+    recent = np.where(present & (np.cumsum(present, axis=0) <= BASELINE_DAYS), earlier, np.nan)
+    n_days = np.minimum(present.sum(axis=0), BASELINE_DAYS)
+    with np.errstate(all="ignore"), warnings.catch_warnings():
+        # A median over nothing is NaN, and a warning
+        warnings.simplefilter("ignore", RuntimeWarning)
+        usual = np.where(n_days >= MIN_BASELINE_DAYS, np.nanmedian(recent, axis=0), np.nan)
+    return pd.DataFrame(usual, index=counts.index, columns=counts.columns)
+
+
+def _long_runs(below: pd.DataFrame, judged: pd.DataFrame) -> pd.DataFrame:
+    """True on days in runs of at least LOW_RUN_DAYS judged days below.
+    Days that are not judged neither count nor end a run, unless there are
+    more than MAX_GAP_DAYS of them."""
+    runs = pd.DataFrame(False, index=below.index, columns=below.columns)
+    for site in below.columns:
+        days = below.loc[judged[site], site]
+        gap = days.index.to_series().diff() > pd.Timedelta(days=MAX_GAP_DAYS + 1)
+        run_id = ((days != days.shift()) | gap).cumsum()
+        long = days & (days.groupby(run_id).transform("size") >= LOW_RUN_DAYS)
+        runs.loc[long.index, site] = long
+    return runs
+
+
+def low_count_days(sites_daily: pd.DataFrame) -> pd.Series:
+    """True for usable days far below the usual count of their site compared
+    with the other sites (see LOW_LEVEL), aligned with sites_daily.
+
+    Meant as a warning, not a flag: the rule cannot tell a partial outage
+    from building works or a leisure route in bad weather. Real outages go
+    into SITE_FAULTS by hand.
+    """
+    counts = sites_daily.pivot(index="date", columns="site_id", values="total")
+    counts = counts.reindex(pd.date_range(counts.index.min(), counts.index.max(), freq="D"))
+    ok = sites_daily.pivot(index="date", columns="site_id", values="ok").reindex(counts.index)
+    ok = ok.fillna(False).astype(bool)
+    special = calendar_features(counts.index)[list(SPECIAL_DAYS)].any(axis=1).to_numpy()
+
+    low = pd.DataFrame(False, index=counts.index, columns=counts.columns)
+    for _ in range(MAX_ITERATIONS):
+        usable = ok & ~low
+        level = counts / _usual_counts(counts, usable)
+        usable_level = level.where(usable)
+        # The other sites only, so that a site's own outage does not lower its yardstick
+        city = pd.DataFrame(
+            {site: usable_level.drop(columns=site).median(axis=1) for site in counts.columns}
+        )
+        judged = ok & (city >= MIN_CITY_LEVEL) & ~special[:, None] & level.notna()
+        new = _long_runs(judged & (level / city < LOW_LEVEL), judged)
+        if new.equals(low):
+            break
+        low = new
+
+    lookup = low.stack()
+    keys = pd.MultiIndex.from_arrays([pd.DatetimeIndex(sites_daily["date"]), sites_daily["site_id"]])
+    return pd.Series(lookup.reindex(keys).fillna(False).to_numpy(dtype=bool), index=sites_daily.index)

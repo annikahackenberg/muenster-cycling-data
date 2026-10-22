@@ -25,6 +25,7 @@ RESOLUTIONS = {"Day": "D", "Week": "W", "Month": "M"}
 # Flags in the order they explain a day best: a missing day is not also partial
 FLAG_REASONS = {
     "missing": "no data",
+    "known_fault": "partial outage",
     "zero": "site counted nothing",
     "dead_channel": "channel outage",
     "partial": "incomplete day",
@@ -52,13 +53,20 @@ def assign_colors(selected: list[str], previous: dict[str, int]) -> dict[str, in
 def day_reasons(sites_daily: pd.DataFrame) -> pd.Series:
     """Why a day is flagged, as text ("" for days without flags).
 
-    A channel outage shows its note (which channel stopped counting).
+    A channel outage shows its note (which channel stopped counting), a
+    partial outage the reason from SITE_FAULTS. Data published before a flag
+    existed lacks its column; such flags are skipped.
     """
     reason = pd.Series("", index=sites_daily.index)
     for flag, text in reversed(FLAG_REASONS.items()):
-        reason = reason.mask(sites_daily[flag], text)
+        if flag in sites_daily:
+            reason = reason.mask(sites_daily[flag], text)
     outage = sites_daily["dead_channel"] & ~sites_daily["missing"]
-    return reason.mask(outage, "channel outage: " + sites_daily["note"])
+    reason = reason.mask(outage, "channel outage: " + sites_daily["note"])
+    if "known_fault" in sites_daily:
+        fault = sites_daily["known_fault"] & ~sites_daily["missing"]
+        reason = reason.mask(fault, "partial outage: " + sites_daily["note"])
+    return reason
 
 
 def is_routine(rows: pd.DataFrame) -> pd.Series:

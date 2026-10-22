@@ -6,6 +6,8 @@ from radmuenster.findings import (
     month_profile,
     rain_effect,
     ratio_to_typical,
+    site_findings,
+    site_profiles,
     unflagged_outages,
     weekday_profile,
 )
@@ -75,3 +77,54 @@ def test_unflagged_outages_bridge_short_gaps():
     assert outages.iloc[0]["start"] == pd.Timestamp("2022-09-01")
     assert outages.iloc[0]["end"] == pd.Timestamp("2022-10-15")
     assert outages.iloc[0]["days"] == 44
+
+
+def make_weather():
+    """Two years with 10 hours of rain on every eleventh day, dry otherwise."""
+    dates = pd.date_range("2024-01-01", "2025-12-31", freq="D", name="date")
+    return pd.DataFrame({"precipitation_hours": np.where(np.arange(len(dates)) % 11 == 0, 10.0, 0.0)}, index=dates)
+
+
+def make_site_counts(weather: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    """Two years of three commuter routes (Sundays 40 % of a workday, little
+    affected by rain) and two leisure routes (Sundays 150 %, half the trips
+    on rainy days), plus a new site with too few days."""
+    dates = weather.index
+    rain = weather["precipitation_hours"].to_numpy() >= 8
+    season = 1 + 0.2 * np.sin(2 * np.pi * (dates.dayofyear - 100) / 365)
+
+    def counts(sunday: float, rain_factor: float, size: float, summer: float = 1.0) -> pd.DataFrame:
+        weekly = np.where(dates.dayofweek == 6, sunday, np.where(dates.dayofweek == 5, 0.8, 1.0))
+        count = size * weekly * np.where(rain, rain_factor, 1.0) * season ** summer
+        return pd.DataFrame({"count": count, "complete": True}, index=dates)
+
+    sites = {
+        "100034983": counts(0.4, 0.9, 6000),  # Warendorfer Straße
+        "100034980": counts(0.4, 0.9, 7000),  # Hammer Straße
+        "100034981": counts(0.4, 0.9, 3000),  # Weseler Straße
+        "100053305": counts(1.5, 0.5, 900, summer=5),  # Kanalpromenade, Abschnitt 5
+        "300037936": counts(1.5, 0.5, 600, summer=5),  # Kanalpromenade, Abschnitt 6
+    }
+    sites["300037925"] = counts(0.4, 0.9, 1500).iloc[:30]  # Goldstraße, too few days
+    return sites
+
+
+def test_site_findings_tell_commuter_from_leisure_routes():
+    weather = make_weather()
+    profiles = site_profiles(make_site_counts(weather), weather)
+    assert "300037925" not in profiles.index  # too few days
+    assert profiles["leisure"].sum() == 2
+    assert profiles.loc["100053305", "sunday"] == pytest.approx(1.5, rel=0.05)
+    assert profiles.loc["100053305", "rain_weekend"] < 0.6 < 0.85 < profiles.loc["100034980", "rain_weekend"]
+
+    weekday, rain, season = site_findings(profiles)
+    assert "At 3 of the 5 sites, Sundays have 40%–40%" in weekday.text
+    assert "the Kanalpromenade (sections 5 and 6)" in weekday.text
+    assert "The leisure routes keep only" in rain.text
+    for finding in (weekday, rain, season):
+        for theme in ("light", "dark"):
+            finding.chart(theme).to_dict()
+
+
+def test_site_findings_need_commuter_routes():
+    assert site_findings(pd.DataFrame(columns=["site_name", "sunday", "leisure"])) == []

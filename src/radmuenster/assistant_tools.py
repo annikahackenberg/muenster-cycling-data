@@ -31,7 +31,7 @@ from radmuenster.dashboard import (
     sites_overview,
 )
 from radmuenster.explore import RESOLUTIONS, aggregate, flagged_periods, ranking, select
-from radmuenster.findings import key_findings
+from radmuenster.findings import key_findings, site_findings, site_profiles
 from radmuenster.forecast import GLOBAL_MODEL_NAME, MODEL_NAME
 from radmuenster.monitoring import evaluate_forecasts
 from radmuenster.multi_site import site_counts_by_id
@@ -359,11 +359,27 @@ def get_weather(data: AssistantData, start: str, end: str) -> dict:
 
 
 def get_insights(data: AssistantData) -> dict:
-    """The key findings of the analysis of the Warendorfer Straße."""
+    """The key findings of the analysis of the Warendorfer Straße, and of all
+    sites (commuter and leisure routes, rain, season), with the values of each
+    site."""
+    profiles = site_profiles(_counts(data), data.weather)
     return {
-        "site": FORECAST_SITE,
-        "findings": [
+        f"findings_{FORECAST_SITE}": [
             {"title": item.title, "text": item.text} for item in key_findings(data.daily, data.weather)
+        ],
+        "findings_all_sites": [{"title": item.title, "text": item.text} for item in site_findings(profiles)],
+        "sites": [
+            {
+                "site": row.site_name,
+                "route_type": "leisure" if row.leisure else "commuter",
+                "sunday_vs_workday": _number(row.sunday, 2),
+                "saturday_vs_workday": _number(row.saturday, 2),
+                "rain_8h_workday_vs_typical": _number(row.rain_workday, 2),
+                "rain_8h_weekend_vs_typical": _number(row.rain_weekend, 2),
+                "busiest_vs_quietest_month": _number(row.season, 1),
+                "busiest_month": row.peak,
+            }
+            for row in profiles.itertuples()
         ],
     }
 
@@ -494,8 +510,10 @@ TOOL_SPECS = [
     ),
     ToolSpec(
         "get_insights",
-        f"The key findings of the data analysis of the {FORECAST_SITE}: effect of the weekday, "
-        "the season and rain, and the known data problems.",
+        f"The key findings of the data analysis: for the {FORECAST_SITE} the effect of the weekday, "
+        "the season and rain, and the known data problems; for all sites, commuter and leisure "
+        "routes, how much rain lowers each site and how much each depends on the season. Use it to "
+        "explain why sites differ.",
         _schema({}, []),
         get_insights,
     ),

@@ -169,3 +169,14 @@ def test_page_shows_all_sites_with_their_notes_only_when_there_are_forecasts():
 
     without = render()
     assert 'id="sites"' not in without and 'href="#sites"' not in without
+
+
+def test_page_shows_the_first_finding_across_all_sites_with_a_link_to_the_others():
+    daily = make_daily()
+    counts = {"100034983": daily, "100034980": daily.assign(count=daily["count"] * 2)}
+    html = render_page(daily, make_log(), [], TODAY, make_weather(), site_counts=counts)
+    assert "Commuter routes and leisure routes" in html
+    assert 'id="chart-site_weekday"' in html and "site_weekday" in chart_specs(html)
+    assert "/insights" in html
+    # The other findings across sites are only in the app
+    assert "chart-site_rain" not in html

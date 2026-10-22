@@ -46,6 +46,11 @@ BIAS_WINDOW_DAYS = 28
 MIN_EVALUATED_DAYS = 14
 MAX_BIAS = 0.08
 
+# Forecasts of all sites: the same check per site, with a wider limit. Small
+# sites and leisure routes depend more on the weather; in the cross-validation
+# their error was up to 22 % (notebook 03).
+MAX_SITE_BIAS = 0.15
+
 # Low counts at any site (low_count_days): warn about runs that reach into
 # the last LOW_COUNT_RECENT_DAYS; low days at most this far apart belong to
 # the same run
@@ -144,6 +149,47 @@ def check_bias(log: pd.DataFrame, daily: pd.DataFrame, today: date) -> str | Non
             f"{direction} ({len(recent)} days): the level may have shifted."
         )
     return None
+
+
+def evaluate_site_forecasts(log: pd.DataFrame, counts: dict[str, pd.DataFrame]) -> pd.DataFrame:
+    """The log of the forecasts of all sites with the actual count of each
+    forecast day, like evaluate_forecasts: only complete days, with the
+    columns actual, error and pct_error. counts maps a site id to its daily
+    counts (site_counts_by_id)."""
+    actual = pd.concat(
+        {site: daily["count"].where(daily["complete"]) for site, daily in counts.items()},
+        names=["site_id", "forecast_date"],
+    ).rename("actual")
+    evaluated = log.join(actual, on=["site_id", "forecast_date"]).dropna(subset=["actual"])
+    evaluated["error"] = evaluated["prediction"] - evaluated["actual"]
+    evaluated["pct_error"] = evaluated["error"] / evaluated["actual"]
+    return evaluated
+
+
+def check_site_bias(log: pd.DataFrame, counts: dict[str, pd.DataFrame], today: date) -> str | None:
+    """Warn about sites whose forecasts of the last BIAS_WINDOW_DAYS were on
+    average more than MAX_SITE_BIAS too high or too low (at least
+    MIN_EVALUATED_DAYS forecasts), in one warning for all of them.
+
+    The bias is the sum of the errors over the sum of the actual counts, not
+    the mean percentage error: a day on which a counter almost stopped (29
+    trips at the Hammer Straße on 1 August 2026) would make that +24,000 %.
+    """
+    evaluated = evaluate_site_forecasts(log, counts)
+    start = pd.Timestamp(today) - pd.Timedelta(days=BIAS_WINDOW_DAYS)
+    recent = evaluated[evaluated["forecast_date"] >= start]
+    sites = []
+    for name, days in recent.groupby("site_name"):
+        bias = days["error"].sum() / days["actual"].sum()
+        if len(days) >= MIN_EVALUATED_DAYS and abs(bias) > MAX_SITE_BIAS:
+            sites.append(f"{name} {bias:+.0%}")
+    if not sites:
+        return None
+    return (
+        f"Forecasts for all sites, last {BIAS_WINDOW_DAYS} days on average too high (+) or too low (-): "
+        + ", ".join(sites)
+        + ". The level of these sites may have shifted, or their counts are wrong."
+    )
 
 
 def check_low_counts(sites_daily: pd.DataFrame, today: date) -> str | None:

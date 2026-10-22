@@ -12,10 +12,13 @@ so a jump there looks like a trend to the models.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
 import pandas as pd
 from lightgbm import LGBMRegressor
 
+from radmuenster.data import DEFAULT_SITE
 from radmuenster.evaluation import FitPredict
 from radmuenster.features import LAGS, training_table
 from radmuenster.models import LIGHTGBM_PARAMS, _lightgbm_inputs, _special_day_factors
@@ -41,6 +44,16 @@ def site_counts(site_daily: pd.DataFrame) -> pd.DataFrame:
         },
         index=pd.DatetimeIndex(site_daily["date"], name="date"),
     )
+
+
+def site_counts_by_id(sites_daily: pd.DataFrame, daily: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    """Daily counts (count, complete) of every site in sites_daily
+    (load_all_sites), by site id. The Warendorfer Straße takes daily
+    (to_daily): only it knows the direction faults of that site."""
+    return {
+        site_id: daily[["count", "complete"]] if site_id == DEFAULT_SITE else site_counts(rows)
+        for site_id, rows in sites_daily.groupby("site_id")
+    }
 
 
 def sites_table(
@@ -92,7 +105,27 @@ def _scaled(table: pd.DataFrame, scale: pd.Series) -> pd.DataFrame:
     return scaled
 
 
-def global_lightgbm(train: pd.DataFrame, test: pd.DataFrame) -> np.ndarray:
+@dataclass
+class GlobalModel:
+    """A fitted global LightGBM with what it needs to prepare new data."""
+
+    model: LGBMRegressor
+    factors: pd.Series  # special day factors, see models._special_day_factors
+    scale: pd.Series  # median count per site in the training data
+
+    def inputs(self, table: pd.DataFrame) -> pd.DataFrame:
+        features = _lightgbm_inputs(_scaled(table, self.scale).drop(columns="site"), self.factors)
+        # LightGBM treats a pandas category as a categorical feature
+        features["site"] = pd.Categorical(table["site"], dtype=pd.CategoricalDtype(sorted(self.scale.index)))
+        return features
+
+    def predict(self, table: pd.DataFrame) -> np.ndarray:
+        """Counts for the rows of table (features and site); NaN for a site
+        the model was not trained on."""
+        return np.exp(self.model.predict(self.inputs(table))) * table["site"].map(self.scale).to_numpy()
+
+
+def fit_global_lightgbm(train: pd.DataFrame) -> GlobalModel:
     """One LightGBM for all sites, on log(count) like models.lightgbm.
 
     The sites differ tenfold in size, and a split like "lag_7 < 3000" means
@@ -107,16 +140,12 @@ def global_lightgbm(train: pd.DataFrame, test: pd.DataFrame) -> np.ndarray:
     training data gets NaN.
     """
     scale = train.groupby("site")["count"].median()
-    sites = pd.CategoricalDtype(sorted(scale.index))
     scaled_train = _scaled(train, scale)
-    factors = _special_day_factors(scaled_train)
+    fitted = GlobalModel(LGBMRegressor(**LIGHTGBM_PARAMS), _special_day_factors(scaled_train), scale)
+    fitted.model.fit(fitted.inputs(train), np.log(scaled_train["count"]))
+    return fitted
 
-    def inputs(table: pd.DataFrame) -> pd.DataFrame:
-        features = _lightgbm_inputs(_scaled(table, scale).drop(columns="site"), factors)
-        # LightGBM treats a pandas category as a categorical feature
-        features["site"] = pd.Categorical(table["site"], dtype=sites)
-        return features
 
-    model = LGBMRegressor(**LIGHTGBM_PARAMS)
-    model.fit(inputs(train), np.log(scaled_train["count"]))
-    return np.exp(model.predict(inputs(test))) * test["site"].map(scale).to_numpy()
+def global_lightgbm(train: pd.DataFrame, test: pd.DataFrame) -> np.ndarray:
+    """fit_global_lightgbm as a fit_predict function for cross_validate."""
+    return fit_global_lightgbm(train).predict(test)

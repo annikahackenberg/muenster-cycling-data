@@ -27,6 +27,7 @@ FLAG_REASONS = {
     "missing": "no data",
     "known_fault": "partial outage",
     "zero": "site counted nothing",
+    "almost_zero": "site counted almost nothing",
     "dead_channel": "channel outage",
     "partial": "incomplete day",
     "status_fault": "flagged by the city",
@@ -73,7 +74,9 @@ def is_routine(rows: pd.DataFrame) -> pd.Series:
     """Flagged days that are routine rather than a problem: the last day of a
     month, when it is only incomplete or missing. The city cuts it short every
     month (and left it out completely from 2021 to 2025)."""
-    only_short = (rows["partial"] | rows["missing"]) & ~rows[["zero", "dead_channel", "status_fault"]].any(axis=1)
+    # Flags added later are missing in data published before them
+    problems = [flag for flag in FLAG_REASONS if flag not in ("partial", "missing") and flag in rows]
+    only_short = (rows["partial"] | rows["missing"]) & ~rows[problems].any(axis=1)
     return rows["date"].dt.is_month_end & only_short
 
 

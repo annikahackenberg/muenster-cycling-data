@@ -13,8 +13,9 @@ import pandas as pd
 
 from holidays import Germany
 
+from radmuenster.data import DEFAULT_SITE
 from radmuenster.features import SUBDIVISION, academic_features, calendar_features, lag_features
-from radmuenster.monitoring import evaluate_forecasts
+from radmuenster.monitoring import evaluate_forecasts, evaluate_site_forecasts
 
 # Width of the content of the Streamlit app in pixels. The wide layout uses
 # the whole window, which spreads a chart too far on a large screen; the
@@ -59,6 +60,13 @@ HOW_IT_WORKS = (
         "Model",
         "gradient-boosted trees (LightGBM) on the logarithm of the count, retrained every evening "
         "on all complete days since 2019.",
+    ),
+    (
+        "All sites",
+        "the other 22 counting sites are forecast by one global model for all sites: counts and "
+        "lags are divided by each site's median, so that the model learns weekly patterns, weather "
+        "and holidays from all sites together. In a cross-validation it was as good as one model per "
+        "site for the sites with a long history and clearly better for the newer ones.",
     ),
     (
         "Automation",
@@ -126,6 +134,126 @@ def forecast_accuracy(log: pd.DataFrame, daily: pd.DataFrame) -> dict[str, float
         "wape": absolute.sum() / evaluated["actual"].sum(),
         "bias": evaluated["pct_error"].mean(),
     }
+
+
+def site_forecast_accuracy(
+    log: pd.DataFrame, counts: dict[str, pd.DataFrame], since: pd.Timestamp | None = None
+) -> pd.DataFrame:
+    """forecast_accuracy per site, for the forecasts of all sites (counts:
+    site_counts_by_id), from since on. One row per site with at least one
+    evaluated day, indexed by site_id: site_name, n, mae, wape, bias.
+
+    The bias is the sum of the errors over the sum of the actual counts (see
+    check_site_bias), not the mean percentage error of forecast_accuracy.
+    """
+    evaluated = evaluate_site_forecasts(log, counts)
+    if since is not None:
+        evaluated = evaluated[evaluated["forecast_date"] >= since]
+    evaluated = evaluated.assign(absolute=evaluated["error"].abs())
+    by_site = evaluated.groupby("site_id")
+    return pd.DataFrame(
+        {
+            "site_name": by_site["site_name"].first(),
+            "n": by_site.size(),
+            "mae": by_site["absolute"].mean(),
+            "wape": by_site["absolute"].sum() / by_site["actual"].sum(),
+            "bias": by_site["error"].sum() / by_site["actual"].sum(),
+        }
+    )
+
+
+def _errors(
+    global_log: pd.DataFrame | None, own_log: pd.DataFrame | None, counts: dict[str, pd.DataFrame]
+) -> dict[str, tuple[int, float]]:
+    """(evaluated days, WAPE) per site: the global model's forecasts, but the
+    own model's for the Warendorfer Straße."""
+    errors = {}
+    if global_log is not None:
+        accuracy = site_forecast_accuracy(global_log, counts)
+        errors = {site: (row["n"], row["wape"]) for site, row in accuracy.iterrows()}
+    if own_log is not None and DEFAULT_SITE in counts:
+        own = forecast_accuracy(own_log, counts[DEFAULT_SITE])
+        errors[DEFAULT_SITE] = (own["n"], own["wape"])
+    return errors
+
+
+# A site whose latest usable day lies more than this before the forecast date
+# gets a note instead of comparisons: its forecast rests on old data
+STALE_COUNTS_DAYS = 14
+# Real forecasts are evaluated over the last ACCURACY_DAYS; with fewer than
+# MIN_ACCURACY_DAYS of them, the backtest's error is shown instead
+ACCURACY_DAYS = 28
+MIN_ACCURACY_DAYS = 7
+
+
+def sites_overview(
+    global_log: pd.DataFrame,
+    own_log: pd.DataFrame,
+    counts: dict[str, pd.DataFrame],
+    today: date,
+    global_backtest: pd.DataFrame | None = None,
+    own_backtest: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    """One row per site for the latest forecast date of global_log, the
+    largest forecast first.
+
+    global_log holds the forecasts of all sites by the global model, own_log
+    those of the Warendorfer Straße by its own model, which it shows instead;
+    the backtests likewise (backtest.py). counts: site_counts_by_id.
+
+    Columns: site_id, site_name, prediction, typical (mean of the same
+    weekday over the four weeks before, see forecast_context), vs_typical,
+    error (WAPE of the last ACCURACY_DAYS, or of the backtest while a site
+    has fewer than MIN_ACCURACY_DAYS evaluated forecasts; NaN without
+    either), error_basis ("last 4 weeks", "backtest" or ""), note.
+    """
+    latest = global_log["forecast_date"].max()
+    rows = global_log[global_log["forecast_date"] == latest].set_index("site_id")
+    own = own_log[own_log["forecast_date"] == latest]
+    if DEFAULT_SITE in rows.index and not own.empty:
+        rows.loc[DEFAULT_SITE, "prediction"] = own["prediction"].iloc[0]
+
+    # Errors per site as (number of days, WAPE): of the real forecasts of the
+    # last weeks, and of the backtest
+    since = pd.Timestamp(today) - pd.Timedelta(days=ACCURACY_DAYS)
+    live = _errors(
+        global_log[global_log["forecast_date"] >= since], own_log[own_log["forecast_date"] >= since], counts
+    )
+    backtest = _errors(global_backtest, own_backtest, counts)
+
+    records = []
+    for site_id, row in rows.iterrows():
+        typical = forecast_context(row, counts[site_id])["typical"] if site_id in counts else None
+        live_n, live_wape = live.get(site_id, (0, np.nan))
+        back_wape = backtest.get(site_id, (0, np.nan))[1]
+        if live_n >= MIN_ACCURACY_DAYS:
+            error, basis = live_wape, "last 4 weeks"
+        elif not pd.isna(back_wape):
+            error, basis = back_wape, "backtest"
+        else:
+            error, basis = np.nan, ""
+
+        note = ""
+        last_usable = pd.Timestamp(row["latest_complete_day"])
+        if last_usable < latest - pd.Timedelta(days=STALE_COUNTS_DAYS):
+            note = (
+                f"No usable counts since {last_usable:%d %b %Y}: the forecast rests on older data "
+                "and cannot be checked."
+            )
+            typical, error, basis = None, np.nan, ""
+        records.append(
+            {
+                "site_id": site_id,
+                "site_name": row["site_name"],
+                "prediction": int(row["prediction"]),
+                "typical": typical,
+                "vs_typical": row["prediction"] / typical - 1 if typical else np.nan,
+                "error": error,
+                "error_basis": basis,
+                "note": note,
+            }
+        )
+    return pd.DataFrame(records).sort_values("prediction", ascending=False, ignore_index=True)
 
 
 def weather_metrics(forecast: pd.Series) -> dict[str, str]:

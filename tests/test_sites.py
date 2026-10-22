@@ -5,6 +5,7 @@ from radmuenster.data import parse_month_channels
 from radmuenster.sites import (
     SITES,
     SITES_BY_ID,
+    almost_zero_days,
     load_all_sites,
     low_count_days,
     mark_site_faults,
@@ -180,3 +181,12 @@ def test_mark_site_faults_flags_the_days_with_their_reason():
     ]
     assert (marked.loc[fault, "note"] == "half the usual count").all()
     assert (marked["ok"] == ~fault).all()
+
+
+def test_almost_zero_days_flag_a_single_day_but_not_the_whole_city():
+    table = make_sites()
+    scale(table, "s0", "2025-09-16", "2025-09-16", 0.03)
+    # Snow everywhere: all sites far below normal, no judgement
+    scale(table, None, "2025-09-23", "2025-09-23", 0.03)
+    flagged = table[almost_zero_days(table)]
+    assert flagged[["site_id", "date"]].astype(str).values.tolist() == [["s0", "2025-09-16"]]

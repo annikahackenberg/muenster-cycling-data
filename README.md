@@ -2,10 +2,12 @@
 
 Exploring Münster's bicycle traffic with open data – analysis, forecasting and an AI assistant.
 
-First project: **daily forecast of bicycle trips at the Warendorfer Straße counting site** (data since January 2019).
+First project: **daily forecast of bicycle trips at the Warendorfer Straße counting site** (data since January 2019),
+now extended to **all 23 counting sites** of the city with one global model.
 
 **Live: [annikahackenberg.github.io/muenster-cycling-data](https://annikahackenberg.github.io/muenster-cycling-data/)**:
-tomorrow's forecast, updated every evening, with the last eight weeks of counts, the monitoring and how it works.
+tomorrow's forecast, updated every evening, with the last eight weeks of counts, tomorrow at all sites, the
+monitoring and how it works.
 An interactive version runs on [Streamlit](https://muenster-cycling-data.streamlit.app); the free hosting puts it
 to sleep when nobody visits it for a while, then it takes a moment to wake up.
 
@@ -119,8 +121,21 @@ details: [notebooks/03_multi_site_models.ipynb](notebooks/03_multi_site_models.i
 | 14 sites with data since 2023/2024, quarters from 2025 | 20.7 % | 11.5 % | **9.9 %** |
 
 WAPE over all test days. With a long history both approaches are equally good; for the newer sites
-the global model is clearly better. The main problem is the data: several sites have weeks of partial
-counts that the flags do not detect yet.
+the global model is clearly better, so the daily forecasts of all sites use one global model.
+
+A **backtest** ([backtest.py](src/radmuenster/backtest.py), `python -m radmuenster.backtest --days 90`) forecasts
+every day of the last 90 days as if the daily job had run on the evening before: trained on the days known
+then, with the weather forecast of that evening from Open-Meteo's archive of previous runs. Its result is in
+[forecasts/sites_backtest.csv](forecasts/sites_backtest.csv), never in the logs of real forecasts:
+
+| 24 July to 21 October 2026, weather forecast of the evening before | WAPE |
+|---|---|
+| All 23 sites, global model | 9.2 % |
+| Single sites | 7.0 % (Promenade) to 18.4 % (Kanalpromenade, Abschnitt 6) |
+| Warendorfer Straße, own model / global model (same days) | 7.3 % / 7.9 % |
+
+It is still slightly optimistic: the flags of outages use hindsight, and summer and autumn are easier to
+forecast than winter and the holidays in the cross-validation.
 
 ## Daily forecast
 
@@ -133,6 +148,11 @@ the result to [forecasts/forecasts.csv](forecasts/forecasts.csv), together with 
 That weather is replaced by measured weather in the archive later, so the log is the basis for the honest
 error of the daily forecast. "Tomorrow" is determined in Münster's time zone.
 
+The same run trains the global model on all sites and logs tomorrow's forecast of every site in
+[forecasts/sites_forecasts.csv](forecasts/sites_forecasts.csv). The Warendorfer Straße keeps its own model;
+its global forecast is logged too, to compare both on real forecasts. If the forecasts of all sites fail,
+the forecast of the Warendorfer Straße and the page are still made, and the monitoring reports the error.
+
 The same run checks whether the forecast can still be trusted and writes the warnings to
 [forecasts/status.json](forecasts/status.json):
 
@@ -142,6 +162,8 @@ The same run checks whether the forecast can still be trusted and writes the war
 | Incomplete days | 3 or more of the last 7 days are incomplete or faulty (dead channel) |
 | Inbound share | the median share of the last 14 days differs by more than 5 points from the 90 days before (new measurement jump) |
 | Bias | the forecasts of the last 28 days are on average more than 8 % too high or too low |
+| Bias of all sites | the forecasts of a site over 28 days are more than 15 % too high or too low (sum of errors over sum of counts) |
+| Low counts | a site is far below its usual count compared with the other sites for three days in a row (see below) |
 
 Run against the history, the inbound share check finds both known jumps within two weeks
 (26 June 2024, 5 November 2025) and one more episode: from mid-May to early June 2026 the share
@@ -160,8 +182,10 @@ pip install -e ".[app]"
 streamlit run streamlit_app.py
 ```
 
-The Streamlit app has four pages and can be understood on its own. [Forecast](app_pages/forecast.py) shows tomorrow's forecast next to the same weekday
-last week and a typical one, the weather forecast it is based on, what sets the day apart in the calendar
+The Streamlit app has four pages and can be understood on its own. [Forecast](app_pages/forecast.py) starts
+with tomorrow at all sites: the forecast, the change against a typical day and the typical error of each
+site (from the backtest until a site has a week of real forecasts). Below it, for a selected site, it shows
+the forecast next to the same weekday last week and a typical one, the weather forecast it is based on, what sets the day apart in the calendar
 (public holiday, school holidays, no lectures), the counts and forecasts of the last eight weeks, the error of the logged forecasts and the monitoring
 status. It reads the forecast log from `main` on GitHub, so it shows a new forecast without redeploying,
 and loads the recent counts directly from the city. If the daily job is switched off, the page says so
@@ -174,9 +198,9 @@ installed from [requirements.txt](requirements.txt).
 
 ### AI assistant
 
-*Leeze* is Münster dialect for bicycle. The chat answers questions about the forecast and its accuracy, the
+*Leeze* is Münster dialect for bicycle. The chat answers questions about the forecasts at all sites and their accuracy, the
 counts at all sites, the weather and problems in the data. A language model (Claude Haiku) only chooses
-tools and words the answer; every number comes from one of nine tools
+tools and words the answer; every number comes from one of ten tools
 ([assistant_tools.py](src/radmuenster/assistant_tools.py)), plain functions on the published data that can
 be tested without a model. Below each answer, the page shows which tools were called with which arguments.
 The tool-use loop ([assistant.py](src/radmuenster/assistant.py)) is written by hand on the Messages API: it
@@ -211,12 +235,14 @@ tell them from building works or a leisure route in bad weather. So the daily mo
 a site is far below its usual count compared with the other sites for three days in a row (the usual
 count is the median of the same weekday in the last weeks; dividing by the median of the other sites takes
 out rain, holidays and the season). Whether it is an outage is decided by hand; real outages go into
-`SITE_FAULTS` in [sites.py](src/radmuenster/sites.py) and are flagged as partial outages.
+`SITE_FAULTS` in [sites.py](src/radmuenster/sites.py) and are flagged as partial outages. Only a day with
+less than a tenth of the usual count is flagged automatically ("counted almost nothing"): no weather does
+that to one road but not the others.
 
 The daily job also builds a static version of the page ([static_page.py](src/radmuenster/static_page.py)) and
 publishes it on GitHub Pages, without a commit. It is a single HTML file with the same chart, embedded as a
 Vega-Lite spec, so it loads instantly and never sleeps. It shows the forecast in the same context as the
-app and the key findings of the exploratory analysis (weekly pattern, season, rain on workdays and
+app, tomorrow at all sites, and the key findings of the exploratory analysis (weekly pattern, season, rain on workdays and
 weekends, data quality), recomputed every evening by [findings.py](src/radmuenster/findings.py), and links
 to the app. Both pages take their texts and numbers from the same functions. Next to the page, the job
 publishes the daily counts of all sites, of the Warendorfer Straße and the weather as Parquet files, which
@@ -236,7 +262,8 @@ the app reads instead of downloading them from the city.
    compare them in Streamlit
 7. [x] AI assistant: ask questions about the data in natural language (an LLM with tools that query the
    counts, weather and forecasts)
-8. [ ] Forecasts for more counting sites
+8. [x] Forecasts for all counting sites
    - [x] Compare one model per site with one global model for all sites
    - [x] Flag partial outages that the current flags miss (a monitoring warning, decided by hand)
-   - [ ] Daily forecasts for all sites with the global model
+   - [x] Daily forecasts for all sites with the global model, a backtest, on both pages and in the assistant
+9. [ ] Insights for all sites, e.g. commuter and leisure routes in the rain, the season at each site

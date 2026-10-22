@@ -7,6 +7,7 @@ import pytest
 from radmuenster.forecast import (
     combine_weather,
     forecast_day,
+    forecast_sites,
     read_forecasts,
     save_forecast,
     today_in_muenster,
@@ -96,3 +97,40 @@ def test_save_forecast_appends_and_replaces_same_date_and_model(tmp_path):
         [pd.Timestamp("2026-10-13"), "other", 6000],
         [pd.Timestamp("2026-10-14"), "lightgbm", 6000],
     ]
+
+
+def test_forecast_sites_predicts_every_site_on_its_own_scale(daily):
+    weather = make_weather("2025-01-01", "2026-10-13")
+    counts = {
+        "100034980": daily,  # Hammer Straße
+        "100034981": daily.assign(count=daily["count"] / 10),  # Weseler Straße, a tenth
+    }
+    record = forecast_sites(counts, weather, date(2026, 10, 13), made_on=date(2026, 10, 12))
+    assert record["site_name"].tolist() == ["Hammer Straße", "Weseler Straße"]
+    assert record["prediction"].tolist() == pytest.approx([6000, 600], rel=0.05)
+    assert (record["model"] == "global_lightgbm").all()
+    assert (record["latest_complete_day"] == date(2026, 10, 11)).all()
+
+
+def test_forecast_sites_skips_a_site_without_usable_days(daily):
+    weather = make_weather("2025-01-01", "2026-10-13")
+    counts = {"100034980": daily, "100034981": daily.assign(complete=False)}
+    record = forecast_sites(counts, weather, date(2026, 10, 13), made_on=date(2026, 10, 12))
+    assert record["site_id"].tolist() == ["100034980"]
+
+
+def test_save_forecast_keeps_one_row_per_site(tmp_path):
+    path = tmp_path / "sites.csv"
+    key = ("forecast_date", "site_id", "model")
+    first = pd.concat([make_record(date(2026, 10, 13), 100), make_record(date(2026, 10, 13), 200)])
+    first["site_id"] = ["a", "b"]
+    save_forecast(first, path, key=key)
+    rerun = make_record(date(2026, 10, 13), 150).assign(site_id="a")
+    log = save_forecast(rerun, path, key=key)
+    assert log[["site_id", "prediction"]].values.tolist() == [["a", 150], ["b", 200]]
+
+
+def test_read_forecasts_keeps_site_ids_as_text(tmp_path):
+    path = tmp_path / "sites.csv"
+    save_forecast(make_record(date(2026, 10, 13), 100).assign(site_id="100034983"), path)
+    assert read_forecasts(path)["site_id"].tolist() == ["100034983"]

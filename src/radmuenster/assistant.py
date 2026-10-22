@@ -44,8 +44,9 @@ DAILY_UPDATE_UTC = time(18, 15)
 
 SYSTEM_PROMPT = f"""\
 You answer questions about bicycle traffic in Münster, Germany, from the open \
-counting data of the City of Münster (23 automatic counting sites) and a daily \
-forecast for the {FORECAST_SITE}.
+counting data of the City of Münster (23 automatic counting sites) and daily \
+forecasts for all of them: the {FORECAST_SITE} with its own model, the other sites \
+with one model for all.
 
 Always answer in the language of the user's latest message. Site names and tool \
 results are partly German, and earlier answers may be in another language; \

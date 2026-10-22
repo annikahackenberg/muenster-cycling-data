@@ -8,6 +8,7 @@ import pytest
 
 from radmuenster.assistant_tools import (
     MAX_ROWS,
+    SITE_IDS,
     TOOL_SPECS,
     AssistantData,
     ToolError,
@@ -15,6 +16,7 @@ from radmuenster.assistant_tools import (
     get_flagged_periods,
     get_forecast,
     get_forecast_accuracy,
+    get_forecasts_all_sites,
     get_weather,
     rank_sites,
     run_tool,
@@ -31,7 +33,7 @@ def make_sites_daily() -> pd.DataFrame:
     frames = []
     for name, total in [("Warendorfer Straße", 5000.0), ("Neutor", 8000.0)]:
         frame = pd.DataFrame(
-            {"site_id": name, "site_name": name, "date": dates, "total": total, "note": "", "ok": True}
+            {"site_id": SITE_IDS[name], "site_name": name, "date": dates, "total": total, "note": "", "ok": True}
         )
         for flag in FLAGS:
             frame[flag] = False
@@ -78,6 +80,7 @@ def make_log() -> pd.DataFrame:
             "made_on": dates - pd.Timedelta(days=1),
             "model": "lightgbm",
             "prediction": [3300, 3300, 6600, 6000, 6600],
+            "latest_complete_day": dates - pd.Timedelta(days=2),
         }
     )
     for column in ["temp_mean", "temp_max", "precipitation", "precipitation_hours", "snowfall", "sunshine", "wind_max"]:
@@ -85,9 +88,27 @@ def make_log() -> pd.DataFrame:
     return log
 
 
+def make_sites_log(dates: pd.DatetimeIndex, prediction: float) -> pd.DataFrame:
+    """Forecasts of the global model at the Neutor and the Warendorfer Straße."""
+    frames = []
+    for name in ["Neutor", "Warendorfer Straße"]:
+        log = make_log().iloc[: len(dates)].assign(
+            forecast_date=dates, site_id=SITE_IDS[name], site_name=name, model="global_lightgbm",
+            prediction=prediction,
+        )
+        log["made_on"] = dates - pd.Timedelta(days=1)
+        log["latest_complete_day"] = dates - pd.Timedelta(days=2)
+        frames.append(log)
+    return pd.concat(frames, ignore_index=True)
+
+
 @pytest.fixture(scope="module")
 def data() -> AssistantData:
-    return AssistantData(make_sites_daily(), make_daily(), make_weather(), make_log(), TODAY, ["A warning."])
+    return AssistantData(
+        make_sites_daily(), make_daily(), make_weather(), make_log(), TODAY, ["A warning."],
+        sites_log=make_sites_log(pd.date_range("2026-10-10", "2026-10-14", freq="D"), 8800.0),
+        backtest=make_sites_log(pd.date_range("2026-10-01", "2026-10-05", freq="D"), 8000.0),
+    )
 
 
 def test_get_counts_per_week_ignores_case_of_the_site(data):
@@ -148,6 +169,31 @@ def test_get_forecast_puts_the_number_into_context(data):
     assert result["calendar"] == ["regular day"]
 
 
+def test_get_forecast_at_another_site_comes_from_the_global_model(data):
+    result = get_forecast(data, "neutor")
+    assert (result["site"], result["predicted_trips"], result["typical_same_weekday"]) == ("Neutor", 8800, 8000)
+    assert result["model"].startswith("One LightGBM for all sites")
+    assert "note" not in result
+
+
+def test_get_forecast_accuracy_at_another_site_with_its_backtest(data):
+    result = get_forecast_accuracy(data, 7, "Neutor")
+    assert result["days_evaluated"] == 3  # 10 to 12 October have counts
+    assert result["mae_trips"] == 800
+    assert result["backtest"]["wape"] == 0.0
+    assert "cross_validation" not in result  # only for the Warendorfer Straße
+
+
+def test_get_forecasts_all_sites_shows_the_own_model_of_the_warendorfer_strasse(data):
+    result = get_forecasts_all_sites(data)
+    assert result["forecast_date"] == "2026-10-14"
+    sites = {row["site"]: row for row in result["sites"]}
+    assert sites["Neutor"]["predicted_trips"] == 8800
+    assert sites["Neutor"]["change_vs_typical"] == 0.1
+    assert sites["Warendorfer Straße"]["predicted_trips"] == 6600  # own model, not 8800
+    assert result["sites"][0]["site"] == "Neutor"  # largest first
+
+
 def test_get_forecast_accuracy_over_the_last_days(data):
     result = get_forecast_accuracy(data, 7)
     # 10 to 12 October have counts; 13 and 14 October not yet
@@ -182,8 +228,9 @@ VALID_ARGUMENTS = {
     "list_sites": {},
     "get_counts": {"site": "Neutor", "start": "2026-09-01", "end": "2026-09-30", "resolution": "week"},
     "rank_sites": {"start": "2026-09-01", "end": "2026-09-30"},
-    "get_forecast": {},
-    "get_forecast_accuracy": {"last_days": 28},
+    "get_forecast": {"site": "Neutor"},
+    "get_forecasts_all_sites": {},
+    "get_forecast_accuracy": {"last_days": 28, "site": "Neutor"},
     "get_weather": {"start": "2026-10-01", "end": "2026-10-14"},
     "get_insights": {},
     "get_flagged_periods": {"site": "Neutor", "start": "2026-09-01", "end": "2026-10-12"},

@@ -212,7 +212,7 @@ def load_all_sites(
         daily.insert(0, "site_id", site.id)
         daily.insert(1, "site_name", site.name)
         frames.append(daily)
-    return mark_site_faults(pd.concat(frames, ignore_index=True)), failed
+    return mark_almost_zero(mark_site_faults(pd.concat(frames, ignore_index=True))), failed
 
 
 def mark_site_faults(
@@ -252,6 +252,9 @@ MIN_BASELINE_DAYS = 3
 # Days on which all sites together are below this level are not judged:
 # snow, Christmas and holidays affect the sites too differently
 MIN_CITY_LEVEL = 0.5
+# Far less than that, on a single day, is flagged: the counter (almost) stopped,
+# like at the Hammer Straße on 1 August 2026 (29 trips instead of about 7,000)
+ALMOST_ZERO_LEVEL = 0.1
 # Low days are left out of the usual counts, which changes the levels;
 # repeat until nothing changes
 MAX_ITERATIONS = 10
@@ -287,6 +290,40 @@ def _long_runs(below: pd.DataFrame, judged: pd.DataFrame) -> pd.DataFrame:
     return runs
 
 
+def _wide(sites_daily: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, np.ndarray]:
+    """Counts and ok flags with one row per calendar day and one column per
+    site, and which days are special days off."""
+    counts = sites_daily.pivot(index="date", columns="site_id", values="total")
+    counts = counts.reindex(pd.date_range(counts.index.min(), counts.index.max(), freq="D"))
+    ok = sites_daily.pivot(index="date", columns="site_id", values="ok").reindex(counts.index)
+    ok = ok.fillna(False).astype(bool)
+    special = calendar_features(counts.index)[list(SPECIAL_DAYS)].any(axis=1).to_numpy()
+    return counts, ok, special
+
+
+def _adjusted_levels(
+    counts: pd.DataFrame, ok: pd.DataFrame, special: np.ndarray, low: pd.DataFrame
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Each day's count relative to the usual count of its site, divided by
+    the median of the same over the other sites, and which days are judged
+    (see LOW_LEVEL). Days in low are left out of the usual counts and the
+    medians."""
+    usable = ok & ~low
+    level = counts / _usual_counts(counts, usable)
+    usable_level = level.where(usable)
+    # The other sites only, so that a site's own outage does not lower its yardstick
+    city = pd.DataFrame({site: usable_level.drop(columns=site).median(axis=1) for site in counts.columns})
+    judged = ok & (city >= MIN_CITY_LEVEL) & ~special[:, None] & level.notna()
+    return level / city, judged
+
+
+def _aligned(wide: pd.DataFrame, sites_daily: pd.DataFrame) -> pd.Series:
+    """A True/False table (days x sites) as a column aligned with sites_daily."""
+    lookup = wide.stack()
+    keys = pd.MultiIndex.from_arrays([pd.DatetimeIndex(sites_daily["date"]), sites_daily["site_id"]])
+    return pd.Series(lookup.reindex(keys).fillna(False).to_numpy(dtype=bool), index=sites_daily.index)
+
+
 def low_count_days(sites_daily: pd.DataFrame) -> pd.Series:
     """True for usable days far below the usual count of their site compared
     with the other sites (see LOW_LEVEL), aligned with sites_daily.
@@ -295,27 +332,31 @@ def low_count_days(sites_daily: pd.DataFrame) -> pd.Series:
     from building works or a leisure route in bad weather. Real outages go
     into SITE_FAULTS by hand.
     """
-    counts = sites_daily.pivot(index="date", columns="site_id", values="total")
-    counts = counts.reindex(pd.date_range(counts.index.min(), counts.index.max(), freq="D"))
-    ok = sites_daily.pivot(index="date", columns="site_id", values="ok").reindex(counts.index)
-    ok = ok.fillna(False).astype(bool)
-    special = calendar_features(counts.index)[list(SPECIAL_DAYS)].any(axis=1).to_numpy()
-
+    counts, ok, special = _wide(sites_daily)
     low = pd.DataFrame(False, index=counts.index, columns=counts.columns)
     for _ in range(MAX_ITERATIONS):
-        usable = ok & ~low
-        level = counts / _usual_counts(counts, usable)
-        usable_level = level.where(usable)
-        # The other sites only, so that a site's own outage does not lower its yardstick
-        city = pd.DataFrame(
-            {site: usable_level.drop(columns=site).median(axis=1) for site in counts.columns}
-        )
-        judged = ok & (city >= MIN_CITY_LEVEL) & ~special[:, None] & level.notna()
-        new = _long_runs(judged & (level / city < LOW_LEVEL), judged)
+        adjusted, judged = _adjusted_levels(counts, ok, special, low)
+        new = _long_runs(judged & (adjusted < LOW_LEVEL), judged)
         if new.equals(low):
             break
         low = new
+    return _aligned(low, sites_daily)
 
-    lookup = low.stack()
-    keys = pd.MultiIndex.from_arrays([pd.DatetimeIndex(sites_daily["date"]), sites_daily["site_id"]])
-    return pd.Series(lookup.reindex(keys).fillna(False).to_numpy(dtype=bool), index=sites_daily.index)
+
+def almost_zero_days(sites_daily: pd.DataFrame) -> pd.Series:
+    """True for usable days with less than ALMOST_ZERO_LEVEL of the usual
+    count of their site compared with the other sites, aligned with
+    sites_daily. Unlike a low count, this has no harmless explanation: not
+    even heavy rain takes nine in ten cyclists off one road but not the
+    others. So it is a flag, already from a single day."""
+    counts, ok, special = _wide(sites_daily)
+    adjusted, judged = _adjusted_levels(counts, ok, special, pd.DataFrame(False, index=ok.index, columns=ok.columns))
+    return _aligned(judged & (adjusted < ALMOST_ZERO_LEVEL), sites_daily)
+
+
+def mark_almost_zero(sites_daily: pd.DataFrame) -> pd.DataFrame:
+    """sites_daily with the column almost_zero (almost_zero_days) and ok updated."""
+    marked = sites_daily.copy()
+    marked.insert(marked.columns.get_loc("note"), "almost_zero", almost_zero_days(sites_daily))
+    marked["ok"] = marked["ok"] & ~marked["almost_zero"]
+    return marked

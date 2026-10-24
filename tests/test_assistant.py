@@ -12,6 +12,7 @@ from radmuenster.assistant import (
     MAX_QUESTION_CHARS,
     MAX_QUESTIONS_PER_CONVERSATION,
     REFUSAL_TEXT,
+    SPOKEN_NOTE,
     TRUNCATED_NOTE,
     DailyLimit,
     ask,
@@ -239,3 +240,14 @@ def test_daily_limit_holds_across_threads():
     for thread in threads:
         thread.join()
     assert results.count(True) == 50
+
+
+def test_spoken_question_asks_for_a_short_answer(data):
+    client = FakeClient(response(text("Morgen etwa 4.300 Fahrten.")), response(text("About 4,300 trips.")))
+    ask(client, data, "Wie viele Fahrten morgen?", MODEL, spoken=True)
+    ask(client, data, "How many trips tomorrow?", MODEL)
+    spoken, typed = client.requests
+    assert SPOKEN_NOTE in spoken["system"]
+    assert SPOKEN_NOTE not in typed["system"]
+    # The date stays last, after the note
+    assert spoken["system"].endswith("Today is Tuesday, 2026-10-13.")

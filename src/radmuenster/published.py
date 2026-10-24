@@ -8,14 +8,22 @@ cannot be reached, the local files of the last run are read.
 from __future__ import annotations
 
 import json
+from datetime import date
 from pathlib import Path
 from urllib.error import URLError
 from urllib.request import urlopen
 
 import pandas as pd
 
-from radmuenster.forecast import BACKTEST_FILE, FORECAST_FILE, SITES_FORECAST_FILE, read_forecasts
+from radmuenster.assistant_tools import AssistantData
+from radmuenster.forecast import (
+    BACKTEST_FILE,
+    FORECAST_FILE,
+    SITES_FORECAST_FILE,
+    read_forecasts,
+)
 from radmuenster.monitoring import STATUS_FILE
+from radmuenster.static_page import DAILY_DATA, SITES_DATA, WEATHER_DATA, read_published
 
 # The daily job commits to main; reading from there gets the latest forecast
 # without redeploying the app
@@ -60,3 +68,17 @@ def read_status() -> dict:
             return json.load(response)
     except URLError:
         return json.loads(STATUS_FILE.read_text(encoding="utf-8"))
+
+
+def read_assistant_data(today: date) -> AssistantData:
+    """Everything the assistant's tools read, as published by the daily job."""
+    return AssistantData(
+        sites_daily=read_published(SITES_DATA),
+        daily=read_published(DAILY_DATA),
+        weather=read_published(WEATHER_DATA),
+        log=read_forecast_log(),
+        today=today,
+        warnings=read_status()["warnings"],
+        sites_log=read_sites_forecast_log(),
+        backtest=read_backtest(),
+    )

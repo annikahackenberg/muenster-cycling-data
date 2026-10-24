@@ -16,7 +16,8 @@ dependencies = [
 [project.optional-dependencies]
 app = [
     "anthropic>=1.13",
-    "streamlit>=1.50",
+    "openai>=3.37",
+    "streamlit>=1.66",
 ]
 dev = [
     "pytest>=8",

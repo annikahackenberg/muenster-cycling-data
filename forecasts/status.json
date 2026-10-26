@@ -1,4 +1,6 @@
 {
-  "checked_on": "2026-10-25",
-  "warnings": []
+  "checked_on": "2026-10-26",
+  "warnings": [
+    "Far below the usual count compared with the other sites, maybe a partial outage: Kanalpromenade, Abschnitt 6 since 2026-10-23. Check them on the explore page; add real outages to SITE_FAULTS in sites.py."
+  ]
 }

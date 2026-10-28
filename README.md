@@ -228,16 +228,46 @@ The tool-use loop ([assistant.py](src/radmuenster/assistant.py)) is written by h
 runs the tools the model asks for, sends wrong calls back as errors the model can correct, and makes the
 model answer after at most six tool rounds. The client is passed in, so the tests play the model.
 
-The API key is read from Streamlit secrets (locally `.streamlit/secrets.toml`, which is not committed):
+The API keys are read from Streamlit secrets (locally `.streamlit/secrets.toml`, which is not committed):
 
 ```toml
 ANTHROPIC_API_KEY = "sk-ant-..."
+OPENAI_API_KEY = "sk-..."   # optional, for voice
 ```
 
-Without a key, the page says that the assistant is not set up. Against cost and misuse, a question has at
+Without the Anthropic key, the page says that the assistant is not set up; without the OpenAI key, it only
+takes typed questions. Against cost and misuse, a question has at
 most 500 characters, a conversation at most 10 questions (the whole conversation is sent with every
 question) and the app at most 100 questions per day across all users. The hard limit is the spending
 limit of the API account.
+
+### Voice
+
+Questions can also be spoken, with the microphone in the chat input; a spoken question gets a short
+spoken answer. It is a pipeline of three steps ([voice.py](src/radmuenster/voice.py)):
+
+| Step | What happens | Model |
+|---|---|---|
+| Speech-to-text | the recording (at most 30 s) becomes the question; a prompt with all site names helps with rare German names like "Gasselstiege" | OpenAI `gpt-4o-mini-transcribe` |
+| Assistant | the same tool-use loop as for typed questions; a note before the question says that it may have recognition errors in site names and that the answer is read aloud: at most three short sentences, no tables, rounded numbers (the system prompt stays the same, because the thinking blocks of earlier answers are bound to it) | Claude Haiku |
+| Text-to-speech | markdown is removed (tables become sentences) and the answer is read aloud | OpenAI `gpt-4o-mini-tts` |
+
+Claude does not hear or speak, so both ends use another provider. Like the Anthropic client, the OpenAI
+client is passed in, so the tests play the audio API. Under "How this answer was found", the page shows
+how long each step took (transcription, answer, speech).
+
+How well does the transcription understand questions about Münster's counting sites?
+[voice_eval.py](src/radmuenster/voice_eval.py) measures it on recorded questions: the word error rate,
+how many site names were understood, the transcription time and, with `--assistant`, whether the
+assistant called the expected tool for the transcribed question.
+
+```bash
+python -m radmuenster.voice_eval data/voice              # needs OPENAI_API_KEY
+python -m radmuenster.voice_eval data/voice --assistant  # also ANTHROPIC_API_KEY
+```
+
+`data/voice/questions.csv` lists the recordings with what was said and, optionally, the expected tool
+(`file,text,tool`). The recordings are not committed.
 
 ### All counting sites
 
@@ -289,3 +319,5 @@ the app reads instead of downloading them from the city.
    - [x] Daily forecasts for all sites with the global model, a backtest, on both pages and in the assistant
 9. [x] Insights for all sites: commuter and leisure routes, rain and season at each site, in the app, on the
    static page (the first finding) and in the assistant
+10. [x] Voice: spoken questions and answers in the assistant (speech-to-text, Claude with tools,
+    text-to-speech) and an evaluation of the transcription on recorded questions

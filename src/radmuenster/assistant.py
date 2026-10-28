@@ -64,6 +64,19 @@ say which day they are for and when the next update comes, and still answer with
 - Answer briefly, with numbers rounded sensibly.
 - Questions unrelated to cycling in Münster: say briefly that you only answer those."""
 
+# Sent before a spoken question (radmuenster.voice), in the same message: the
+# answer is read aloud, and the question may have recognition errors. Not in
+# the system prompt: the thinking blocks in the history are bound to the
+# system prompt, so it must stay the same for typed and spoken questions.
+SPOKEN_NOTE = """\
+The following question was spoken and transcribed automatically, so it may contain \
+recognition errors, most likely in site names: if a site name is unknown, use \
+the closest name from list_sites. The answer is read aloud: answer in at most \
+three short sentences of plain text, without tables, lists, headings, markdown \
+or emoji; give at most three numbers, rounded (about 4,300 trips), and dates \
+in words (Tuesday, 21 October). Answer in the language of the question, not \
+of this note."""
+
 LIMIT_NOTE = "The tool limit for this question is reached. Answer with the results you have."
 TRUNCATED_NOTE = "(The answer was cut off because it got too long.)"
 REFUSAL_TEXT = "I can't answer this question."
@@ -149,15 +162,21 @@ def ask(
     model: str,
     history: list | None = None,
     max_rounds: int = MAX_ROUNDS,
+    spoken: bool = False,
 ) -> Answer:
     """Answer question, continuing the conversation history.
 
     Returns the answer with the new history (history is not changed). The
     history keeps the model's content blocks unchanged, including tool calls
-    and thinking, and is only ever appended to.
+    and thinking, and is only ever appended to. spoken asks for a short
+    answer to be read aloud (SPOKEN_NOTE).
     """
     messages = list(history or [])
-    messages.append({"role": "user", "content": question})
+    if spoken:
+        content = [{"type": "text", "text": SPOKEN_NOTE}, {"type": "text", "text": question}]
+    else:
+        content = question
+    messages.append({"role": "user", "content": content})
     answer = Answer("", messages)
     request = {
         "model": model,
@@ -199,17 +218,24 @@ def ask(
     return answer
 
 
-def question_problem(question: str, questions_asked: int) -> str | None:
-    """Why a question is not sent to the model, or None if it may be.
-    questions_asked counts the questions of this conversation so far."""
-    if len(question) > MAX_QUESTION_CHARS:
-        return f"Please ask in at most {MAX_QUESTION_CHARS} characters."
+def conversation_problem(questions_asked: int) -> str | None:
+    """Why the conversation takes no more questions, or None if it does.
+    questions_asked counts the questions of this conversation so far. Checked
+    before a recording is transcribed too, which costs money as well."""
     if questions_asked >= MAX_QUESTIONS_PER_CONVERSATION:
         return (
             f"This conversation has reached {MAX_QUESTIONS_PER_CONVERSATION} questions. "
             "Please start a new conversation."
         )
     return None
+
+
+def question_problem(question: str, questions_asked: int) -> str | None:
+    """Why a question is not sent to the model, or None if it may be.
+    questions_asked counts the questions of this conversation so far."""
+    if len(question) > MAX_QUESTION_CHARS:
+        return f"Please ask in at most {MAX_QUESTION_CHARS} characters."
+    return conversation_problem(questions_asked)
 
 
 class DailyLimit:

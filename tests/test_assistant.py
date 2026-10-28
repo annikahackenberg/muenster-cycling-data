@@ -12,9 +12,11 @@ from radmuenster.assistant import (
     MAX_QUESTION_CHARS,
     MAX_QUESTIONS_PER_CONVERSATION,
     REFUSAL_TEXT,
+    SPOKEN_NOTE,
     TRUNCATED_NOTE,
     DailyLimit,
     ask,
+    conversation_problem,
     question_problem,
     system_prompt,
     tool_definitions,
@@ -214,6 +216,9 @@ def test_question_problem_checks_length_and_conversation():
     assert "500 characters" in question_problem("x" * (MAX_QUESTION_CHARS + 1), questions_asked=0)
     assert question_problem("x" * MAX_QUESTION_CHARS, questions_asked=MAX_QUESTIONS_PER_CONVERSATION - 1) is None
     assert "new conversation" in question_problem("Hi", questions_asked=MAX_QUESTIONS_PER_CONVERSATION)
+    # The same check without a question, before a recording is transcribed
+    assert conversation_problem(MAX_QUESTIONS_PER_CONVERSATION - 1) is None
+    assert "new conversation" in conversation_problem(MAX_QUESTIONS_PER_CONVERSATION)
 
 
 def test_daily_limit_counts_per_day():
@@ -239,3 +244,19 @@ def test_daily_limit_holds_across_threads():
     for thread in threads:
         thread.join()
     assert results.count(True) == 50
+
+
+def test_spoken_question_asks_for_a_short_answer(data):
+    client = FakeClient(response(text("Morgen etwa 4.300 Fahrten.")), response(text("About 4,300 trips.")))
+    ask(client, data, "Wie viele Fahrten morgen?", MODEL, spoken=True)
+    ask(client, data, "How many trips tomorrow?", MODEL)
+    spoken, typed = client.requests
+    # The note goes before the question, in the same message
+    assert spoken["messages"][-1]["content"] == [
+        {"type": "text", "text": SPOKEN_NOTE},
+        {"type": "text", "text": "Wie viele Fahrten morgen?"},
+    ]
+    assert typed["messages"][-1]["content"] == "How many trips tomorrow?"
+    # The system prompt stays the same: the thinking blocks in the history
+    # are bound to it, and the API rejects them if it changes
+    assert spoken["system"] == typed["system"]

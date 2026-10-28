@@ -23,10 +23,10 @@ from radmuenster.sites import SITES
 # (decided 2026-10-24; voice_eval measures the transcription)
 STT_MODEL = "gpt-4o-mini-transcribe"
 TTS_MODEL = "gpt-4o-mini-tts"
-TTS_VOICE = "coral"
+TTS_VOICE = "alloy"
 TTS_INSTRUCTIONS = (
-    "Speak in a friendly, calm voice at a moderate pace, like a local radio "
-    "traffic report. Pronounce German street names the German way."
+    "Speak in a calm, even voice at a moderate pace. "
+    "Pronounce German street names the German way."
 )
 
 # Limits against cost and misuse, like the limits of the text questions.

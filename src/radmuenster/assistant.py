@@ -64,15 +64,18 @@ say which day they are for and when the next update comes, and still answer with
 - Answer briefly, with numbers rounded sensibly.
 - Questions unrelated to cycling in Münster: say briefly that you only answer those."""
 
-# Added to the system prompt for a spoken question (radmuenster.voice): the
-# answer is read aloud, and the question may have recognition errors
+# Sent before a spoken question (radmuenster.voice), in the same message: the
+# answer is read aloud, and the question may have recognition errors. Not in
+# the system prompt: the thinking blocks in the history are bound to the
+# system prompt, so it must stay the same for typed and spoken questions.
 SPOKEN_NOTE = """\
-The question was spoken and transcribed automatically, so it may contain \
+The following question was spoken and transcribed automatically, so it may contain \
 recognition errors, most likely in site names: if a site name is unknown, use \
 the closest name from list_sites. The answer is read aloud: answer in at most \
 three short sentences of plain text, without tables, lists, headings, markdown \
 or emoji; give at most three numbers, rounded (about 4,300 trips), and dates \
-in words (Tuesday, 21 October)."""
+in words (Tuesday, 21 October). Answer in the language of the question, not \
+of this note."""
 
 LIMIT_NOTE = "The tool limit for this question is reached. Answer with the results you have."
 TRUNCATED_NOTE = "(The answer was cut off because it got too long.)"
@@ -112,12 +115,11 @@ def tool_definitions() -> list[dict]:
     ]
 
 
-def system_prompt(today: date, spoken: bool = False) -> str:
+def system_prompt(today: date) -> str:
     # The model needs today's date for "yesterday" or "last week". It changes
     # daily, so it goes last: a prompt cache (not used yet) matches the
     # request from the start up to the first change
-    prompt = f"{SYSTEM_PROMPT}\n\n{SPOKEN_NOTE}" if spoken else SYSTEM_PROMPT
-    return f"{prompt}\n\n{update_note(today)}\nToday is {today:%A, %Y-%m-%d}."
+    return f"{SYSTEM_PROMPT}\n\n{update_note(today)}\nToday is {today:%A, %Y-%m-%d}."
 
 
 def update_note(today: date) -> str:
@@ -170,12 +172,16 @@ def ask(
     answer to be read aloud (SPOKEN_NOTE).
     """
     messages = list(history or [])
-    messages.append({"role": "user", "content": question})
+    if spoken:
+        content = [{"type": "text", "text": SPOKEN_NOTE}, {"type": "text", "text": question}]
+    else:
+        content = question
+    messages.append({"role": "user", "content": content})
     answer = Answer("", messages)
     request = {
         "model": model,
         "max_tokens": MAX_TOKENS,
-        "system": system_prompt(data.today, spoken),
+        "system": system_prompt(data.today),
         "tools": tool_definitions(),
     }
 

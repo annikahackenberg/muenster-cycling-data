@@ -251,7 +251,12 @@ def test_spoken_question_asks_for_a_short_answer(data):
     ask(client, data, "Wie viele Fahrten morgen?", MODEL, spoken=True)
     ask(client, data, "How many trips tomorrow?", MODEL)
     spoken, typed = client.requests
-    assert SPOKEN_NOTE in spoken["system"]
-    assert SPOKEN_NOTE not in typed["system"]
-    # The date stays last, after the note
-    assert spoken["system"].endswith("Today is Tuesday, 2026-10-13.")
+    # The note goes before the question, in the same message
+    assert spoken["messages"][-1]["content"] == [
+        {"type": "text", "text": SPOKEN_NOTE},
+        {"type": "text", "text": "Wie viele Fahrten morgen?"},
+    ]
+    assert typed["messages"][-1]["content"] == "How many trips tomorrow?"
+    # The system prompt stays the same: the thinking blocks in the history
+    # are bound to it, and the API rejects them if it changes
+    assert spoken["system"] == typed["system"]

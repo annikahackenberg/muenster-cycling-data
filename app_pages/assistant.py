@@ -159,11 +159,15 @@ def answer_question(
             start = time.perf_counter()
             answer = ask(client, data, question, MODEL, history=st.session_state.history, spoken=spoken)
             seconds["answer"] = time.perf_counter() - start
+            failed = None
         except anthropic.APIError as error:
             # The history stays as it was, so the next question works
             logger.exception("Assistant request failed")
-            st.error(f"The assistant is not available right now ({type(error).__name__}). Please try again later.")
-            st.stop()
+            failed = error
+    # After the spinner: stopping inside it would leave it on the page
+    if failed is not None:
+        st.error(f"The assistant is not available right now ({type(failed).__name__}). Please try again later.")
+        st.stop()
     for call in answer.tool_calls:
         if call.error:
             logger.warning("Tool %s(%s) failed: %s", call.name, call.arguments, call.error)

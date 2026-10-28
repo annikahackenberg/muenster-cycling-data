@@ -249,7 +249,7 @@ spoken answer. It is a pipeline of three steps ([voice.py](src/radmuenster/voice
 | Step | What happens | Model |
 |---|---|---|
 | Speech-to-text | the recording (at most 30 s) becomes the question; a prompt with all site names helps with rare German names like "Gasselstiege" | OpenAI `gpt-4o-mini-transcribe` |
-| Assistant | the same tool-use loop as for typed questions; the system prompt adds that the question may have recognition errors in site names and that the answer is read aloud: at most three short sentences, no tables, rounded numbers | Claude Haiku |
+| Assistant | the same tool-use loop as for typed questions; a note before the question says that it may have recognition errors in site names and that the answer is read aloud: at most three short sentences, no tables, rounded numbers (the system prompt stays the same, because the thinking blocks of earlier answers are bound to it) | Claude Haiku |
 | Text-to-speech | markdown is removed (tables become sentences) and the answer is read aloud | OpenAI `gpt-4o-mini-tts` |
 
 Claude does not hear or speak, so both ends use another provider. Like the Anthropic client, the OpenAI

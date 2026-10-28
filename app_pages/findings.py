@@ -6,14 +6,21 @@ import pandas as pd
 import streamlit as st
 
 from radmuenster.dashboard import APP_CONTENT_WIDTH
-from radmuenster.findings import key_findings
-from radmuenster.static_page import DAILY_DATA, WEATHER_DATA, read_published
+from radmuenster.findings import key_findings, site_findings, site_profiles
+from radmuenster.multi_site import site_counts_by_id
+from radmuenster.static_page import DAILY_DATA, SITES_DATA, WEATHER_DATA, read_published
 
 REPO_URL = "https://github.com/annikahackenberg/muenster-cycling-data"
 NOTEBOOK_URL = f"{REPO_URL}/blob/main/notebooks/01_exploratory_analysis.ipynb"
 
 # The cached data is reloaded at most once an hour
 CACHE_SECONDS = 3600
+
+
+@st.cache_data(ttl=CACHE_SECONDS)
+def load_site_counts(daily: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    """Daily counts of all sites by id, as published by the daily job."""
+    return site_counts_by_id(read_published(SITES_DATA), daily)
 
 
 @st.cache_data(ttl=CACHE_SECONDS)
@@ -54,3 +61,13 @@ st.caption(
     f"Details, more plots and the reasoning behind them: [exploratory analysis]({NOTEBOOK_URL}) "
     "on GitHub. Only complete days are used."
 )
+
+st.header("All counting sites")
+st.write(
+    "The same methods applied to all 23 counting sites of the city, from their complete days only. "
+    "They explain why the forecasts differ so much between sites on the same day."
+)
+for finding in site_findings(site_profiles(load_site_counts(daily), weather)):
+    st.subheader(finding.title)
+    st.altair_chart(finding.chart(theme), width="stretch")
+    st.write(finding.text)

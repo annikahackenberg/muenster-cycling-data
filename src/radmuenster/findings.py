@@ -17,6 +17,7 @@ import pandas as pd
 
 from radmuenster.dashboard import SERIES_COLORS
 from radmuenster.features import PERIOD_STARTS, SPECIAL_DAYS, calendar_features
+from radmuenster.sites import SITES_BY_ID
 
 WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -367,5 +368,197 @@ def key_findings(daily: pd.DataFrame, weather: pd.DataFrame) -> list[Finding]:
                 "dashed lines at two jumps."
             ),
             chart=lambda theme: share_chart(share, outages, theme),
+        ),
+    ]
+
+
+# Findings across all counting sites. A site counts as a leisure route if its
+# Sundays reach at least this share of an average workday: at commuter routes
+# Sundays have about 40-55 %, at the paths along the canal 90 % or more.
+LEISURE_SUNDAY = 0.8
+# Height of one row (site) in the charts of all sites
+SITE_ROW_HEIGHT = 18
+# A site needs this many complete days for its profile (eight of each weekday)
+MIN_SITE_DAYS = 56
+
+
+def site_profiles(counts: dict[str, pd.DataFrame], weather: pd.DataFrame) -> pd.DataFrame:
+    """The weekly pattern, the effect of rain and the season of every site,
+    with the same functions as the findings of the Warendorfer Straße.
+
+    counts: site_counts_by_id. One row per site, indexed by site id:
+      site_name
+      sunday, saturday          vs. an average workday (weekday_profile)
+      rain_workday, rain_weekend  8+ hours of rain vs. a typical day (rain_effect)
+      season                    busiest month / quietest month (month_profile);
+                                NaN without a full year
+      peak, low                 busiest and quietest month
+      leisure                   sunday >= LEISURE_SUNDAY
+
+    Sites with fewer than MIN_SITE_DAYS complete days (a new site) are left out.
+    """
+    rows = {}
+    for site_id, daily in counts.items():
+        if daily["complete"].sum() < MIN_SITE_DAYS:
+            continue
+        weekday = weekday_profile(daily).set_index("weekday")["factor"]
+        rain = rain_effect(daily, weather).set_index(["day_type", "rain"])["factor"]
+        month = month_profile(daily).set_index("month")["factor"]
+        full_year = month.notna().all()
+        rows[site_id] = {
+            "site_name": SITES_BY_ID[site_id].name,
+            "sunday": weekday["Sun"],
+            "saturday": weekday["Sat"],
+            "rain_workday": rain.get((WORKDAY, "8+ h"), np.nan),
+            "rain_weekend": rain.get((WEEKEND, "8+ h"), np.nan),
+            "season": month.max() / month.min() if full_year else np.nan,
+            "peak": month.idxmax() if full_year else None,
+            "low": month.idxmin() if full_year else None,
+        }
+    columns = ["site_name", "sunday", "saturday", "rain_workday", "rain_weekend", "season", "peak", "low"]
+    profiles = pd.DataFrame.from_dict(rows, orient="index", columns=columns)
+    profiles["leisure"] = profiles["sunday"] >= LEISURE_SUNDAY
+    return profiles
+
+
+def site_bar_chart(profiles: pd.DataFrame, value: str, title: str, theme: str) -> alt.LayerChart:
+    """Horizontal bars of one value per site, the largest at the top, with a
+    rule at 1.0."""
+    color = SERIES_COLORS[theme][next(iter(SERIES_COLORS[theme]))]
+    data = profiles.dropna(subset=[value])[["site_name", value]]
+    bars = (
+        alt.Chart(data)
+        .mark_bar(color=color, cornerRadiusTopRight=4, cornerRadiusBottomRight=4)
+        .encode(
+            y=alt.Y("site_name:N", sort="-x", title=None, axis=alt.Axis(labelLimit=260)),
+            x=alt.X(f"{value}:Q", title=title, scale=alt.Scale(zero=True)),
+            tooltip=[alt.Tooltip("site_name:N", title="Site"), alt.Tooltip(f"{value}:Q", title=title, format=".2f")],
+        )
+    )
+    one = alt.Chart(pd.DataFrame({"x": [1.0]})).mark_rule(color="gray", strokeDash=[4, 3]).encode(x="x:Q")
+    return alt.layer(bars, one).properties(height=SITE_ROW_HEIGHT * len(data))
+
+
+def site_rain_chart(profiles: pd.DataFrame, theme: str) -> alt.LayerChart:
+    """Per site, the count on days with 8+ hours of rain vs. a typical day,
+    workdays and weekends as two bars, the hardest hit site at the bottom."""
+    colors = list(SERIES_COLORS[theme].values())
+    data = profiles.melt(
+        id_vars="site_name", value_vars=["rain_workday", "rain_weekend"], var_name="day_type", value_name="factor"
+    ).dropna()
+    data["day_type"] = data["day_type"].map({"rain_workday": WORKDAY, "rain_weekend": WEEKEND})
+    order = profiles.sort_values("rain_weekend", ascending=False)["site_name"].tolist()
+    bars = (
+        alt.Chart(data)
+        .mark_bar(cornerRadiusTopRight=3, cornerRadiusBottomRight=3)
+        .encode(
+            y=alt.Y("site_name:N", sort=order, title=None, axis=alt.Axis(labelLimit=260)),
+            yOffset=alt.YOffset("day_type:N", sort=[WORKDAY, WEEKEND]),
+            x=alt.X("factor:Q", title="8+ h of rain vs. typical day", scale=alt.Scale(zero=True)),
+            color=alt.Color(
+                "day_type:N",
+                scale=alt.Scale(domain=[WORKDAY, WEEKEND], range=colors),
+                legend=alt.Legend(orient="top", title=None),
+            ),
+            tooltip=[
+                alt.Tooltip("site_name:N", title="Site"),
+                alt.Tooltip("day_type:N", title="Day"),
+                alt.Tooltip("factor:Q", title="Factor", format=".2f"),
+            ],
+        )
+    )
+    one = alt.Chart(pd.DataFrame({"x": [1.0]})).mark_rule(color="gray", strokeDash=[4, 3]).encode(x="x:Q")
+    return alt.layer(bars, one).properties(height=SITE_ROW_HEIGHT * 1.6 * len(order))
+
+
+def _span(values: pd.Series, fmt: str = "{:.0%}") -> str:
+    """The range of values as text, e.g. "37%–56%"."""
+    return f"{fmt.format(values.min())}–{fmt.format(values.max())}"
+
+
+def _names(names: pd.Series) -> str:
+    """"A", "A and B", "A, B and C"."""
+    names = list(names)
+    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+
+
+CANAL = "Kanalpromenade, Abschnitt "
+MONTH_NAMES = dict(zip(MONTHS, pd.date_range("2026-01-01", periods=12, freq="MS").strftime("%B")))
+
+
+def _leisure_names(names: pd.Series) -> str:
+    """The leisure routes as text; the sections of the Kanalpromenade, whose
+    names contain commas themselves, as "the Kanalpromenade (sections 1, 5 and 6)"."""
+    if names.str.startswith(CANAL).all():
+        sections = sorted(name.removeprefix(CANAL).split(" ")[0] for name in names)
+        return f"the paths along the canal, the Kanalpromenade (sections {_names(pd.Series(sections))})"
+    return _names(names)
+
+
+def site_findings(profiles: pd.DataFrame) -> list[Finding]:
+    """The findings across all sites, from their site_profiles; none without
+    commuter routes to compare with (e.g. too little data)."""
+    if (~profiles.get("leisure", pd.Series(dtype=bool))).sum() == 0:
+        return []
+    leisure, commuter = profiles[profiles["leisure"]], profiles[~profiles["leisure"]]
+    sunday_text = (
+        f"At {len(commuter)} of the {len(profiles)} sites, Sundays have {_span(commuter['sunday'])} of the "
+        "trips of an average workday: they carry mostly commuters, to work, the university and school."
+    )
+    rain_text = (
+        f"On weekends with eight or more hours of rain, the commuter routes keep {_span(commuter['rain_weekend'])} "
+        f"of a typical day's trips, on workdays {_span(commuter['rain_workday'])}."
+    )
+    with_season = profiles.dropna(subset=["season"])
+    season_text = (
+        f"Most sites count {_span(with_season.loc[~with_season['leisure'], 'season'], '{:.1f}')} times as many "
+        "trips in their busiest month as in their quietest."
+    )
+    if not leisure.empty:
+        sunday_text += (
+            f" At {_leisure_names(leisure['site_name'])}, Sundays reach {_span(leisure['sunday'])}: "
+            "these are leisure routes."
+        )
+        rain_text += (
+            f" The leisure routes keep only {_span(leisure['rain_weekend'])} on rainy weekends and "
+            f"{_span(leisure['rain_workday'])} on rainy workdays: whoever rides for fun stays at home."
+        )
+        leisure_season = with_season.loc[with_season["leisure"], "season"]
+        if not leisure_season.empty:
+            season_text += f" The leisure routes {_span(leisure_season, '{:.1f}')} times: they depend on summer."
+    other_peaks = with_season[~with_season["peak"].isin(["May", "Jun"])]
+    if not other_peaks.empty:
+        season_text += " Most sites peak in May or June; " + _names(
+            "the " + other_peaks["site_name"] + " in " + other_peaks["peak"].map(MONTH_NAMES)
+        ) + " instead."
+    missing = profiles.loc[profiles["season"].isna(), "site_name"]
+    season_text += (
+        " Sites counting since 2023 or 2024 rest on one or two full years"
+        + (f"; {_names(missing)} has no full year with enough complete days yet." if not missing.empty else ".")
+    )
+    return [
+        Finding(
+            name="site_weekday",
+            title="Commuter routes and leisure routes",
+            text=sunday_text,
+            description="Horizontal bar chart of the Sunday count relative to an average workday, per site.",
+            chart=lambda theme: site_bar_chart(profiles, "sunday", "Sunday vs. average workday", theme),
+        ),
+        Finding(
+            name="site_rain",
+            title="Rain hits the leisure routes hardest",
+            text=rain_text,
+            description=(
+                "Horizontal grouped bar chart of the count on days with 8 or more hours of rain relative "
+                "to a typical day, for workdays and weekends, per site."
+            ),
+            chart=lambda theme: site_rain_chart(profiles, theme),
+        ),
+        Finding(
+            name="site_season",
+            title="Some routes depend on summer",
+            text=season_text,
+            description="Horizontal bar chart of the busiest month relative to the quietest month, per site.",
+            chart=lambda theme: site_bar_chart(profiles, "season", "Busiest month vs. quietest", theme),
         ),
     ]

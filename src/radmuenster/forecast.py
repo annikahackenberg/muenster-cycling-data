@@ -219,9 +219,9 @@ def main() -> None:
     warnings = run_checks(daily, log, today, sites_daily) + [
         f"Counting site {name} could not be loaded ({error})." for name, error in failed_sites.items()
     ]
+    counts = site_counts_by_id(sites_daily, daily)
     # The forecast of the Warendorfer Straße above must not depend on this one
     try:
-        counts = site_counts_by_id(sites_daily, daily)
         sites_record = forecast_sites(counts, weather, target, made_on=today)
         sites_log = save_forecast(sites_record, SITES_FORECAST_FILE, key=("forecast_date", "site_id", "model"))
         warnings.append(check_site_bias(sites_log, counts, today))
@@ -232,7 +232,7 @@ def main() -> None:
         warnings.append(f"The forecasts for all sites failed ({type(error).__name__}: {error}).")
     warnings = [warning for warning in warnings if warning is not None]
     write_status(warnings, today)
-    page = write_site(render_page(daily, log, warnings, today, weather, overview))
+    page = write_site(render_page(daily, log, warnings, today, weather, overview, counts))
     sites_data = write_data(sites_daily, SITES_DATA)
     write_data(daily, DAILY_DATA)
     write_data(weather, WEATHER_DATA)

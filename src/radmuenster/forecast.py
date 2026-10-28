@@ -225,7 +225,8 @@ def main() -> None:
     # The error message is only for the issue, not for the public pages
     warnings = run_checks(daily, log, today, sites_daily) + [
         MonitoringWarning(
-            f"Counting site {name} could not be loaded today: its latest counts are missing.",
+            f"Counting site {name} could not be loaded today: it is missing from the explore page, "
+            "the insights and the forecasts.",
             f"Error: {error}. Check the city's files of this site.",
         )
         for name, error in failed_sites.items()
@@ -235,7 +236,7 @@ def main() -> None:
     try:
         sites_record = forecast_sites(counts, weather, target, made_on=today)
         sites_log = save_forecast(sites_record, SITES_FORECAST_FILE, key=("forecast_date", "site_id", "model"))
-        warnings.append(check_site_bias(sites_log, counts, today))
+        warnings += check_site_bias(sites_log, counts, today)
         overview = sites_overview(sites_log, log, counts, today, *_read_backtest())
     # Deliberately broad, like a broken site in load_all_sites
     except Exception as error:

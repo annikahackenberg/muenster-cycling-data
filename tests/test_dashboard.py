@@ -13,6 +13,7 @@ from radmuenster.dashboard import (
     forecast_context,
     is_stale,
     latest_forecast,
+    monitoring_headline,
     site_forecast_accuracy,
     sites_overview,
     weather_metrics,
@@ -170,3 +171,10 @@ def test_sites_overview_shows_the_own_model_and_notes_stale_sites():
     assert rows.loc["x", ["error", "error_basis"]].tolist() == [pytest.approx(0.1), "backtest"]
     assert rows.loc["old", "note"].startswith("No usable counts since 06 Aug 2025")
     assert pd.isna(rows.loc["old", "vs_typical"])
+
+
+def test_monitoring_headline():
+    day = date(2026, 10, 28)
+    assert monitoring_headline(1, 1, day) == "Warnings on 28 October 2026:"
+    assert monitoring_headline(0, 1, day) == "No open warnings on 28 October 2026."
+    assert monitoring_headline(0, 0, day) == "All checks passed on 28 October 2026."

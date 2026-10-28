@@ -54,9 +54,15 @@ def read_backtest() -> pd.DataFrame:
 
 
 def read_status() -> dict:
-    """The warnings of the latest monitoring run, like read_forecast_log."""
+    """The warnings of the latest monitoring run, like read_forecast_log.
+
+    A status from before actions and checked warnings existed gets empty
+    lists for them, so that the pages can rely on all keys."""
     try:
         with urlopen(RAW_URL + STATUS_FILE.as_posix(), timeout=10) as response:
-            return json.load(response)
+            status = json.load(response)
     except URLError:
-        return json.loads(STATUS_FILE.read_text(encoding="utf-8"))
+        status = json.loads(STATUS_FILE.read_text(encoding="utf-8"))
+    status.setdefault("actions", [])
+    status.setdefault("checked_warnings", [])
+    return status

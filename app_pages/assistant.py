@@ -60,7 +60,7 @@ def load_data(today: date) -> AssistantData:
         log=read_forecast_log(),
         today=today,
         warnings=status["warnings"],
-        checked_warnings=status.get("checked_warnings", []),
+        checked_warnings=status["checked_warnings"],
         sites_log=read_sites_forecast_log(),
         backtest=read_backtest(),
     )

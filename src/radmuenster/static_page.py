@@ -23,6 +23,7 @@ from radmuenster import findings
 from radmuenster.data import DEFAULT_SITE
 from radmuenster.monitoring import MonitoringWarning
 from radmuenster.dashboard import (
+    CHECKED_HEADING,
     COUNTED,
     CV_RESULTS,
     FORECAST,
@@ -34,6 +35,7 @@ from radmuenster.dashboard import (
     forecast_context,
     is_stale,
     latest_forecast,
+    monitoring_headline,
     weather_metrics,
 )
 
@@ -240,17 +242,16 @@ model, all other sites share one.</p>
 def _monitoring_section(warnings: list[MonitoringWarning], today: date) -> str:
     open_items = [f"<li>{escape(w.text)}</li>" for w in warnings if not w.checked]
     checked_items = [f"<li>{escape(w.text)}</li>" for w in warnings if w.checked]
+    headline = monitoring_headline(len(open_items), len(checked_items), today)
     if open_items:
         html = (
-            f'<div class="status warn"><p><span aria-hidden="true">!</span> Warnings on {today:%d %B %Y}:</p>'
+            f'<div class="status warn"><p><span aria-hidden="true">!</span> {headline}</p>'
             f'<ul>{"".join(open_items)}</ul></div>'
         )
-    elif checked_items:
-        html = f'<p class="status ok"><span aria-hidden="true">✓</span> No open warnings on {today:%d %B %Y}.</p>'
     else:
-        return f'<p class="status ok"><span aria-hidden="true">✓</span> All checks passed on {today:%d %B %Y}.</p>'
+        html = f'<p class="status ok"><span aria-hidden="true">✓</span> {headline}</p>'
     if checked_items:
-        html += f'\n<div class="status checked"><p>Checked by hand:</p><ul>{"".join(checked_items)}</ul></div>'
+        html += f'\n<div class="status checked"><p>{CHECKED_HEADING}</p><ul>{"".join(checked_items)}</ul></div>'
     return html
 
 

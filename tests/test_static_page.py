@@ -109,7 +109,7 @@ def test_page_escapes_warnings():
 def test_page_shows_checked_warnings_apart():
     html = render(warnings=[MonitoringWarning("Low since 2026-10-23, checked: rain.", checked=True)])
     assert "No open warnings" in html and "Warnings on" not in html
-    assert "Checked by hand:</p><ul><li>Low since 2026-10-23, checked: rain.</li>" in html
+    assert "Checked by hand, nothing to do:</p><ul><li>Low since 2026-10-23, checked: rain.</li>" in html
 
 
 def test_page_says_when_the_forecast_is_old():

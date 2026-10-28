@@ -420,6 +420,8 @@ def get_monitoring_status(data: AssistantData) -> dict:
             "jumps in the share of trips into the city (a sign that the site changed)",
             "forecasts off in the same direction for weeks, at the Warendorfer Straße and at all sites",
             "sites far below their usual count compared with the other sites (maybe a partial outage)",
+            "sites whose counts could not be downloaded",
+            "whether the forecasts for all sites could be made",
         ],
         "warnings": data.warnings,
         "checked_by_hand": data.checked_warnings,

@@ -77,6 +77,19 @@ HOW_IT_WORKS = (
 )
 
 
+CHECKED_HEADING = "Checked by hand, nothing to do:"
+
+
+def monitoring_headline(n_open: int, n_checked: int, day: date) -> str:
+    """The first line of the monitoring section: warnings, or that all is
+    fine. Checked warnings (CHECKED_WARNINGS) follow under CHECKED_HEADING."""
+    if n_open:
+        return f"Warnings on {day:%d %B %Y}:"
+    if n_checked:
+        return f"No open warnings on {day:%d %B %Y}."
+    return f"All checks passed on {day:%d %B %Y}."
+
+
 def latest_forecast(log: pd.DataFrame) -> pd.Series:
     """The forecast with the latest forecast_date."""
     return log.loc[log["forecast_date"].idxmax()]

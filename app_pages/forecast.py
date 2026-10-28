@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import date, timedelta
 
 import pandas as pd
 import streamlit as st
 
 from radmuenster.dashboard import (
+    CHECKED_HEADING,
     CV_RESULTS,
     HOW_IT_WORKS,
     MIN_ACCURACY_DAYS,
@@ -18,6 +19,7 @@ from radmuenster.dashboard import (
     forecast_context,
     is_stale,
     latest_forecast,
+    monitoring_headline,
     sites_overview,
     weather_metrics,
 )
@@ -256,18 +258,20 @@ else:
     )
 
 status = load_status()
-# A status.json from before checked warnings existed has no checked_warnings
-checked_warnings = status.get("checked_warnings", [])
 st.subheader("Monitoring")
+headline = monitoring_headline(
+    len(status["warnings"]), len(status["checked_warnings"]), date.fromisoformat(status["checked_on"])
+)
 if status["warnings"]:
+    st.markdown(headline)
     for warning in status["warnings"]:
         st.warning(warning, icon="⚠️")
-elif checked_warnings:
-    st.success(f"No open warnings on {status['checked_on']}.", icon="✅")
 else:
-    st.success(f"All checks passed on {status['checked_on']}.", icon="✅")
-for warning in checked_warnings:
-    st.info(f"Checked by hand: {warning}", icon="🔎")
+    st.success(headline, icon="✅")
+if status["checked_warnings"]:
+    st.markdown(CHECKED_HEADING)
+    for warning in status["checked_warnings"]:
+        st.info(warning, icon="🔎")
 
 st.subheader("How it works")
 st.markdown("\n".join(f"{i}. **{step}:** {text}" for i, (step, text) in enumerate(HOW_IT_WORKS, 1)))

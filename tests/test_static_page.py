@@ -7,6 +7,7 @@ import pandas as pd
 
 import requests
 
+from radmuenster.monitoring import MonitoringWarning
 from radmuenster import static_page
 from radmuenster.static_page import (
     SITES_DATA,
@@ -99,8 +100,16 @@ def test_page_links_to_the_app():
 
 
 def test_page_escapes_warnings():
-    html = render(warnings=["Share <0.40> & falling"])
+    html = render(warnings=[MonitoringWarning("Share <0.40> & falling", "Edit PERIOD_STARTS")])
     assert "Share &lt;0.40&gt; &amp; falling" in html
+    # What to do is only for the issue
+    assert "PERIOD_STARTS" not in html
+
+
+def test_page_shows_checked_warnings_apart():
+    html = render(warnings=[MonitoringWarning("Low since 2026-10-23, checked: rain.", checked=True)])
+    assert "No open warnings" in html and "Warnings on" not in html
+    assert "Checked by hand, nothing to do:</p><ul><li>Low since 2026-10-23, checked: rain.</li>" in html
 
 
 def test_page_says_when_the_forecast_is_old():

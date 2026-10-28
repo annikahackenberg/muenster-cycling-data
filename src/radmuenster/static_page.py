@@ -21,7 +21,9 @@ import requests
 
 from radmuenster import findings
 from radmuenster.data import DEFAULT_SITE
+from radmuenster.monitoring import MonitoringWarning
 from radmuenster.dashboard import (
+    CHECKED_HEADING,
     COUNTED,
     CV_RESULTS,
     FORECAST,
@@ -33,6 +35,7 @@ from radmuenster.dashboard import (
     forecast_context,
     is_stale,
     latest_forecast,
+    monitoring_headline,
     weather_metrics,
 )
 
@@ -236,17 +239,26 @@ model, all other sites share one.</p>
 {notes}"""
 
 
-def _monitoring_section(warnings: list[str], today: date) -> str:
-    if not warnings:
-        return f'<p class="status ok"><span aria-hidden="true">✓</span> All checks passed on {today:%d %B %Y}.</p>'
-    items = "\n".join(f"<li>{escape(w)}</li>" for w in warnings)
-    return f'<div class="status warn"><p><span aria-hidden="true">!</span> Warnings on {today:%d %B %Y}:</p><ul>{items}</ul></div>'
+def _monitoring_section(warnings: list[MonitoringWarning], today: date) -> str:
+    open_items = [f"<li>{escape(w.text)}</li>" for w in warnings if not w.checked]
+    checked_items = [f"<li>{escape(w.text)}</li>" for w in warnings if w.checked]
+    headline = monitoring_headline(len(open_items), len(checked_items), today)
+    if open_items:
+        html = (
+            f'<div class="status warn"><p><span aria-hidden="true">!</span> {headline}</p>'
+            f'<ul>{"".join(open_items)}</ul></div>'
+        )
+    else:
+        html = f'<p class="status ok"><span aria-hidden="true">✓</span> {headline}</p>'
+    if checked_items:
+        html += f'\n<div class="status checked"><p>{CHECKED_HEADING}</p><ul>{"".join(checked_items)}</ul></div>'
+    return html
 
 
 def render_page(
     daily: pd.DataFrame,
     log: pd.DataFrame,
-    warnings: list[str],
+    warnings: list[MonitoringWarning],
     today: date,
     weather: pd.DataFrame,
     overview: pd.DataFrame | None = None,
@@ -400,6 +412,7 @@ th { color: var(--muted); font-weight: 500; }
 .status { border-left: 4px solid; padding: 8px 12px; border-radius: 4px; }
 .status.ok { border-color: var(--ok); }
 .status.warn { border-color: var(--warn); }
+.status.checked { border-color: var(--muted); margin-top: 12px; }
 .status span { font-weight: 700; margin-right: 6px; }
 .status.ok span { color: var(--ok); }
 .status.warn span { color: var(--warn); }

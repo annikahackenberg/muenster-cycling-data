@@ -92,7 +92,9 @@ jobs:
             echo "No warnings"
             exit 0
           fi
-          body=$(jq -r '"Monitoring of " + .checked_on + ":\n\n" + (.warnings | map("- " + .) | join("\n"))' forecasts/status.json)
+          # Each warning with what to do about it; warnings checked by hand
+          # (checked_warnings) need no issue
+          body=$(jq -r '"Monitoring of " + .checked_on + ":\n\n" + ([.warnings, .actions] | transpose | map("- " + .[0] + "\n  **To do:** " + .[1]) | join("\n"))' forecasts/status.json)
           gh label create monitoring --color D93F0B --description "Warnings of the daily monitoring" --force
           # One open issue collects all warnings; a new comment per day while
           # problems last. Close the issue once the cause is fixed.

@@ -172,7 +172,7 @@ The same run checks whether the forecast can still be trusted and writes the war
 | Incomplete days | 3 or more of the last 7 days are incomplete or faulty (dead channel) |
 | Inbound share | the median share of the last 14 days differs by more than 5 points from the 90 days before (new measurement jump) |
 | Bias | the forecasts of the last 28 days are on average more than 8 % too high or too low |
-| Bias of all sites | the forecasts of a site over 28 days are more than 15 % too high or too low (sum of errors over sum of counts) |
+| Bias of all sites | the forecasts of a site over 28 days are more than 15 % too high or too low (sum of errors over sum of counts), one warning per site |
 | Low counts | a site is far below its usual count compared with the other sites for three days in a row (see below) |
 
 Run against the history, the inbound share check finds both known jumps within two weeks
@@ -184,6 +184,16 @@ than a change in traffic, so these days are now marked as a known fault.
 A GitHub Actions workflow ([.github/workflows/daily-forecast.yml](.github/workflows/daily-forecast.yml))
 runs every evening at 18:00 UTC, commits the forecast to `main` and opens an issue labelled `monitoring`
 when there are warnings.
+
+The warnings are public: the web page, the app and the AI assistant show them. So each warning has a text
+for visitors and, separately, what to do about it (`actions` in `status.json`), which only the issue shows,
+together with error details. A warning that was checked by hand and needs nothing done (for example low
+counts on a leisure route on days of heavy rain) goes into `CHECKED_WARNINGS` in
+[monitoring.py](src/radmuenster/monitoring.py), with the check, the site, the day of the check and the
+result. The entry covers all days up to the day of the check: the pages show the warning as checked, with
+the result, and it opens no issue. The check keeps judging the days after it, so a new problem at the same
+site warns again. This works for all checks that judge days (incomplete days, inbound share, bias, low
+counts); missing data and failed downloads need a fix instead.
 
 ## Web page
 

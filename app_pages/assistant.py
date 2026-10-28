@@ -52,13 +52,15 @@ PAGE_STYLE = """<style>
 def load_data(today: date) -> AssistantData:
     """Everything the tools read, as published by the daily job. today is part
     of the cache key, so that a new day loads new data."""
+    status = read_status()
     return AssistantData(
         sites_daily=read_published(SITES_DATA),
         daily=read_published(DAILY_DATA),
         weather=read_published(WEATHER_DATA),
         log=read_forecast_log(),
         today=today,
-        warnings=read_status()["warnings"],
+        warnings=status["warnings"],
+        checked_warnings=status["checked_warnings"],
         sites_log=read_sites_forecast_log(),
         backtest=read_backtest(),
     )

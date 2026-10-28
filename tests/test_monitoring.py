@@ -5,6 +5,8 @@ import pandas as pd
 import pytest
 
 from radmuenster.monitoring import (
+    CHECKED_WARNINGS,
+    MonitoringWarning,
     check_site_bias,
     evaluate_site_forecasts,
     check_low_counts,
@@ -39,7 +41,8 @@ def test_freshness_is_fine_with_yesterday():
 
 def test_freshness_warns_without_yesterday():
     warning = check_freshness(make_daily(end="2026-10-10"), TODAY)
-    assert "2026-10-10" in warning
+    assert "2026-10-10" in warning.text
+    assert "city's repository" in warning.action
 
 
 def test_freshness_accepts_a_cut_short_day():
@@ -53,7 +56,7 @@ def test_incomplete_days_warns_from_three_days_on():
     daily.loc["2026-10-09":"2026-10-10", "complete"] = False
     assert check_incomplete_days(daily, TODAY) is None
     daily.loc["2026-10-08", "complete"] = False
-    assert "3 of the last 7 days" in check_incomplete_days(daily, TODAY)
+    assert "3 of the last 7 days" in check_incomplete_days(daily, TODAY).text
 
 
 def test_inbound_share_is_fine_without_jump():
@@ -65,7 +68,9 @@ def test_inbound_share_warns_after_jump():
     # Last 14 days: share drops from 0.47 to 0.40, like the jump of October 2025
     daily.loc["2026-09-28":, "count_in"] = 6000.0 * 0.40
     warning = check_inbound_share(daily, TODAY)
-    assert "0.40" in warning and "0.47" in warning
+    assert "0.40" in warning.text and "0.47" in warning.text
+    # Code names only in what to do, not in the public text
+    assert "PERIOD_STARTS" in warning.action and "PERIOD_STARTS" not in warning.text
 
 
 def test_inbound_share_needs_enough_days_in_the_period():
@@ -87,7 +92,7 @@ def test_evaluate_forecasts_skips_incomplete_and_future_days():
 
 def test_bias_warns_when_forecasts_are_too_high_for_weeks():
     log = make_log(pd.date_range("2026-09-15", "2026-10-11"), prediction=6600.0)
-    assert "10% too high" in check_bias(log, make_daily(), TODAY)
+    assert "10% too high" in check_bias(log, make_daily(), TODAY).text
 
 
 def test_bias_is_fine_when_errors_cancel_out():
@@ -107,23 +112,67 @@ def test_run_checks_and_write_status(tmp_path):
     warnings = run_checks(daily, make_log(pd.DatetimeIndex([]), 0.0), TODAY)
     assert len(warnings) == 1
     path = tmp_path / "status.json"
-    write_status(warnings, TODAY, path)
-    assert json.loads(path.read_text()) == {"checked_on": "2026-10-12", "warnings": warnings}
+    write_status(warnings + [MonitoringWarning("Checked.", checked=True)], TODAY, path)
+    assert json.loads(path.read_text()) == {
+        "checked_on": "2026-10-12",
+        "warnings": [warnings[0].text],
+        "actions": [warnings[0].action],
+        "checked_warnings": ["Checked."],
+    }
+
+
+def make_low_table(sites: dict[str, list[str]]) -> pd.DataFrame:
+    """Low days by site id; the site name is the id in capitals."""
+    rows = [(site, site.upper(), day) for site, days in sites.items() for day in days]
+    table = pd.DataFrame(rows, columns=["site_id", "site_name", "date"])
+    table["date"] = pd.to_datetime(table["date"])
+    return table
 
 
 def test_low_counts_warn_about_recent_runs_only(monkeypatch):
-    days = pd.to_datetime(["2026-09-01", "2026-09-02", "2026-10-15", "2026-10-16", "2026-10-17"])
-    table = pd.DataFrame({"site_name": ["Old", "Old", "New", "New", "New"], "date": days})
+    table = make_low_table(
+        {"old": ["2026-09-01", "2026-09-02"], "new": ["2026-10-15", "2026-10-16", "2026-10-17"]}
+    )
     monkeypatch.setattr("radmuenster.monitoring.low_count_days", lambda t: pd.Series(True, index=t.index))
-    warning = check_low_counts(table, date(2026, 10, 18))
-    assert "New since 2026-10-15" in warning
-    assert "Old" not in warning
+    warnings = check_low_counts(table, date(2026, 10, 18), checked=[])
+    assert len(warnings) == 1
+    assert "NEW: far below its usual count since 2026-10-15" in warnings[0].text
+    assert '("new", "2026-10-15")' in warnings[0].action
+    assert not warnings[0].checked
+
+
+def test_low_counts_show_the_result_of_a_check(monkeypatch):
+    table = make_low_table({"a": ["2026-10-15", "2026-10-16"], "b": ["2026-10-16", "2026-10-17"]})
+    monkeypatch.setattr("radmuenster.monitoring.low_count_days", lambda t: pd.Series(True, index=t.index))
+    checked = [("a", "2026-10-15", "2026-10-18", "no outage, rain")]
+    a, b = check_low_counts(table, date(2026, 10, 18), checked)
+    assert a == MonitoringWarning(
+        "A: unusually low since 2026-10-15, checked on 2026-10-18: no outage, rain.", checked=True
+    )
+    # The check of site a does not hide site b
+    assert not b.checked
+
+
+def test_low_counts_warn_again_about_a_new_run(monkeypatch):
+    # Checked run in September, a new run after a gap of more than a week
+    table = make_low_table({"a": ["2026-09-01", "2026-09-02", "2026-10-16", "2026-10-17"]})
+    monkeypatch.setattr("radmuenster.monitoring.low_count_days", lambda t: pd.Series(True, index=t.index))
+    [warning] = check_low_counts(table, date(2026, 10, 18), [("a", "2026-09-01", "2026-09-05", "fine")])
+    assert not warning.checked and "since 2026-10-16" in warning.text
 
 
 def test_low_counts_are_fine_without_low_days(monkeypatch):
-    table = pd.DataFrame({"site_name": ["A"], "date": pd.to_datetime(["2026-10-17"])})
+    table = make_low_table({"a": ["2026-10-17"]})
     monkeypatch.setattr("radmuenster.monitoring.low_count_days", lambda t: pd.Series(False, index=t.index))
-    assert check_low_counts(table, date(2026, 10, 18)) is None
+    assert check_low_counts(table, date(2026, 10, 18)) == []
+
+
+def test_checked_warnings_name_known_sites():
+    from radmuenster.sites import SITES_BY_ID
+
+    for site_id, since, checked_on, note in CHECKED_WARNINGS:
+        assert site_id in SITES_BY_ID
+        assert pd.Timestamp(since) <= pd.Timestamp(checked_on)
 
 
 def make_site_log(site_id: str, name: str, dates: pd.DatetimeIndex, prediction: float) -> pd.DataFrame:
@@ -163,7 +212,7 @@ def test_site_bias_warns_only_about_biased_sites_with_enough_days():
         ]
     )
     counts = {site: make_counts(dates, 100.0) for site in "abc"}
-    warning = check_site_bias(log, counts, today)
+    warning = check_site_bias(log, counts, today).text
     assert "Biased +20%" in warning
     assert "Fine" not in warning and "Few days" not in warning
 

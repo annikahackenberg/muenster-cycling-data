@@ -185,6 +185,13 @@ A GitHub Actions workflow ([.github/workflows/daily-forecast.yml](.github/workfl
 runs every evening at 18:00 UTC, commits the forecast to `main` and opens an issue labelled `monitoring`
 when there are warnings.
 
+The warnings are public: the web page, the app and the AI assistant show them. So each warning has a text
+for visitors and, separately, what to do about it (`actions` in `status.json`), which only the issue shows,
+together with error details. A warning about low counts that turned out to be no outage (for example a
+leisure route on days of heavy rain) goes into `CHECKED_WARNINGS` in
+[monitoring.py](src/radmuenster/monitoring.py): the pages then show it as checked, with the result of the
+check, and it no longer opens an issue. A new run of low days at the same site warns again.
+
 ## Web page
 
 ```bash

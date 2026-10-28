@@ -18,6 +18,7 @@ from radmuenster.assistant_tools import (
     get_forecast_accuracy,
     get_forecasts_all_sites,
     get_weather,
+    get_monitoring_status,
     rank_sites,
     run_tool,
 )
@@ -106,6 +107,7 @@ def make_sites_log(dates: pd.DatetimeIndex, prediction: float) -> pd.DataFrame:
 def data() -> AssistantData:
     return AssistantData(
         make_sites_daily(), make_daily(), make_weather(), make_log(), TODAY, ["A warning."],
+        checked_warnings=["A checked warning."],
         sites_log=make_sites_log(pd.date_range("2026-10-10", "2026-10-14", freq="D"), 8800.0),
         backtest=make_sites_log(pd.date_range("2026-10-01", "2026-10-05", freq="D"), 8000.0),
     )
@@ -259,3 +261,9 @@ def test_run_tool_rejects_unknown_tools_and_arguments(data):
         run_tool(data, "get_weather", {"start": "2026-10-01"})
     with pytest.raises(ToolError, match="Invalid arguments for list_sites"):
         run_tool(data, "list_sites", {"site": "Neutor"})
+
+
+def test_monitoring_status_includes_checked_warnings(data):
+    status = get_monitoring_status(data)
+    assert status["warnings"] == ["A warning."]
+    assert status["checked_by_hand"] == ["A checked warning."]

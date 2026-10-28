@@ -8,11 +8,16 @@ checks look for problems the forecast itself does not notice:
 - the counting site changed, visible as a jump in the inbound share, like in
   June 2024 and October 2025 (see PERIOD_STARTS in features.py)
 - the forecast is off in the same direction for weeks
+
+The warnings are public (web page, app, AI assistant), so each has a text for
+visitors and, separately, what to do about it; only the issue of the daily
+job shows the second.
 """
 
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
@@ -56,8 +61,35 @@ MAX_SITE_BIAS = 0.15
 # the same run
 LOW_COUNT_RECENT_DAYS = 7
 
+# Low counts that were checked by hand and are no outage: (site id, first day
+# of the run as reported in the warning, day of the check, result). The pages
+# show the result instead of the warning, and the issue leaves it out. A new
+# run of low days at the same site starts with another day and warns again.
+CHECKED_WARNINGS = [
+    (
+        "300037936", "2026-10-23", "2026-10-28",
+        "no outage; rain hits this leisure route much harder than the other sites "
+        "(12-17 hours of rain a day), as in October 2025",
+    ),
+]
 
-def check_freshness(daily: pd.DataFrame, today: date) -> str | None:
+
+@dataclass(frozen=True)
+class MonitoringWarning:
+    """One warning of the checks.
+
+    text     what visitors of the pages read
+    action   what to do about it, only for the issue
+    checked  True if it was checked by hand (CHECKED_WARNINGS): text then
+             says what the check found, and there is nothing to do
+    """
+
+    text: str
+    action: str = ""
+    checked: bool = False
+
+
+def check_freshness(daily: pd.DataFrame, today: date) -> MonitoringWarning | None:
     """Warn if yesterday has no counts at all: the city's update failed, or
     the download got an old version of the files.
 
@@ -67,14 +99,15 @@ def check_freshness(daily: pd.DataFrame, today: date) -> str | None:
     latest = daily.index[daily["n_intervals"] > 0].max()
     yesterday = pd.Timestamp(today) - pd.Timedelta(days=1)
     if latest < yesterday:
-        return (
-            f"No counts after {latest:%Y-%m-%d} in the downloaded data: the city's daily update "
-            "may have failed, or the download got an old version (compare with the city's repository)."
+        return MonitoringWarning(
+            f"No counts after {latest:%Y-%m-%d}: the forecast uses older counts.",
+            "The city's daily update may have failed, or the download got an old version "
+            "(compare with the city's repository).",
         )
     return None
 
 
-def check_incomplete_days(daily: pd.DataFrame, today: date) -> str | None:
+def check_incomplete_days(daily: pd.DataFrame, today: date) -> MonitoringWarning | None:
     """Warn if many of the last RECENT_DAYS days are incomplete.
 
     A dead channel marks every day as incomplete (direction_fault); the
@@ -84,14 +117,15 @@ def check_incomplete_days(daily: pd.DataFrame, today: date) -> str | None:
     recent = daily.loc[start:]
     n_incomplete = int((~recent["complete"]).sum())
     if n_incomplete >= MAX_INCOMPLETE_DAYS:
-        return (
-            f"{n_incomplete} of the last {RECENT_DAYS} days are incomplete or faulty: "
-            "check the counting site's channels."
+        return MonitoringWarning(
+            f"{n_incomplete} of the last {RECENT_DAYS} days at the Warendorfer Straße are incomplete "
+            "or faulty: the forecast may be less accurate.",
+            "Check the counting site's channels on the explore page.",
         )
     return None
 
 
-def check_inbound_share(daily: pd.DataFrame, today: date) -> str | None:
+def check_inbound_share(daily: pd.DataFrame, today: date) -> MonitoringWarning | None:
     """Warn if the inbound share of the last SHARE_WINDOW_DAYS days differs
     from the REFERENCE_DAYS before by more than MAX_SHARE_DEVIATION.
 
@@ -109,10 +143,11 @@ def check_inbound_share(daily: pd.DataFrame, today: date) -> str | None:
         return None
     deviation = recent.median() - reference.median()
     if abs(deviation) > MAX_SHARE_DEVIATION:
-        return (
-            f"Inbound share of the last {SHARE_WINDOW_DAYS} days is {recent.median():.2f}, "
-            f"against {reference.median():.2f} in the {REFERENCE_DAYS} days before: "
-            "the counting site may have changed. If so, add a new entry to PERIOD_STARTS."
+        return MonitoringWarning(
+            f"Share of trips into the city at the Warendorfer Straße in the last {SHARE_WINDOW_DAYS} days "
+            f"is {recent.median():.2f}, against {reference.median():.2f} in the {REFERENCE_DAYS} days before: "
+            "the counting site may have changed, so the forecast may be off.",
+            "If the site changed, add a new entry to PERIOD_STARTS in features.py.",
         )
     return None
 
@@ -133,7 +168,7 @@ def evaluate_forecasts(log: pd.DataFrame, daily: pd.DataFrame) -> pd.DataFrame:
     return evaluated
 
 
-def check_bias(log: pd.DataFrame, daily: pd.DataFrame, today: date) -> str | None:
+def check_bias(log: pd.DataFrame, daily: pd.DataFrame, today: date) -> MonitoringWarning | None:
     """Warn if the forecasts of the last BIAS_WINDOW_DAYS are on average more
     than MAX_BIAS too high or too low (at least MIN_EVALUATED_DAYS forecasts)."""
     evaluated = evaluate_forecasts(log, daily)
@@ -144,9 +179,11 @@ def check_bias(log: pd.DataFrame, daily: pd.DataFrame, today: date) -> str | Non
     bias = recent["pct_error"].mean()
     if abs(bias) > MAX_BIAS:
         direction = "too high" if bias > 0 else "too low"
-        return (
+        return MonitoringWarning(
             f"Forecasts of the last {BIAS_WINDOW_DAYS} days were on average {abs(bias):.0%} "
-            f"{direction} ({len(recent)} days): the level may have shifted."
+            f"{direction} ({len(recent)} days): the level may have shifted.",
+            "Look for a shift in the counts on the explore page; if the site changed, add a new "
+            "entry to PERIOD_STARTS in features.py.",
         )
     return None
 
@@ -166,7 +203,9 @@ def evaluate_site_forecasts(log: pd.DataFrame, counts: dict[str, pd.DataFrame]) 
     return evaluated
 
 
-def check_site_bias(log: pd.DataFrame, counts: dict[str, pd.DataFrame], today: date) -> str | None:
+def check_site_bias(
+    log: pd.DataFrame, counts: dict[str, pd.DataFrame], today: date
+) -> MonitoringWarning | None:
     """Warn about sites whose forecasts of the last BIAS_WINDOW_DAYS were on
     average more than MAX_SITE_BIAS too high or too low (at least
     MIN_EVALUATED_DAYS forecasts), in one warning for all of them.
@@ -185,57 +224,88 @@ def check_site_bias(log: pd.DataFrame, counts: dict[str, pd.DataFrame], today: d
             sites.append(f"{name} {bias:+.0%}")
     if not sites:
         return None
-    return (
+    return MonitoringWarning(
         f"Forecasts for all sites, last {BIAS_WINDOW_DAYS} days on average too high (+) or too low (-): "
         + ", ".join(sites)
-        + ". The level of these sites may have shifted, or their counts are wrong."
+        + ". The level of these sites may have shifted, or their counts are wrong.",
+        "Check these sites on the explore page; add real outages to SITE_FAULTS in sites.py.",
     )
 
 
-def check_low_counts(sites_daily: pd.DataFrame, today: date) -> str | None:
+def check_low_counts(
+    sites_daily: pd.DataFrame, today: date, checked: list[tuple[str, str, str, str]] = CHECKED_WARNINGS
+) -> list[MonitoringWarning]:
     """Warn about sites far below their usual count compared with the other
-    sites in the last days (low_count_days): maybe a partial outage.
+    sites in the last days (low_count_days): maybe a partial outage. One
+    warning per site, so that a checked site does not hide another.
 
     Days in SITE_FAULTS are not ok and so never low: once an outage is
-    entered there, the warning stops.
+    entered there, the warning stops. A run in checked (CHECKED_WARNINGS)
+    still shows, but with the result of the check.
     """
-    low = sites_daily.loc[low_count_days(sites_daily), ["site_name", "date"]]
+    low = sites_daily.loc[low_count_days(sites_daily), ["site_id", "site_name", "date"]]
     recent_start = pd.Timestamp(today) - pd.Timedelta(days=LOW_COUNT_RECENT_DAYS)
-    sites = []
-    for name, days in low.groupby("site_name")["date"]:
+    results = {(site_id, since): (checked_on, note) for site_id, since, checked_on, note in checked}
+    warnings = []
+    for (site_id, name), days in low.groupby(["site_id", "site_name"])["date"]:
         days = days.sort_values()
         if days.iloc[-1] < recent_start:
             continue
         # The start of the latest run: the first day after the last gap
         gaps = days.diff() > pd.Timedelta(days=LOW_COUNT_RECENT_DAYS)
-        since = days[gaps].iloc[-1] if gaps.any() else days.iloc[0]
-        sites.append(f"{name} since {since:%Y-%m-%d}")
-    if not sites:
-        return None
-    return (
-        "Far below the usual count compared with the other sites, maybe a partial outage: "
-        + ", ".join(sites)
-        + ". Check them on the explore page; add real outages to SITE_FAULTS in sites.py."
-    )
+        since = f"{days[gaps].iloc[-1] if gaps.any() else days.iloc[0]:%Y-%m-%d}"
+        if (site_id, since) in results:
+            checked_on, note = results[(site_id, since)]
+            warnings.append(
+                MonitoringWarning(
+                    f"{name}: unusually low since {since}, checked on {checked_on}: {note}.", checked=True
+                )
+            )
+        else:
+            warnings.append(
+                MonitoringWarning(
+                    f"{name}: far below its usual count since {since}, compared with the other sites. "
+                    "Maybe a partial outage, not checked yet.",
+                    "Check it on the explore page. Add a real outage to SITE_FAULTS in sites.py, "
+                    f'a false alarm to CHECKED_WARNINGS in monitoring.py ("{site_id}", "{since}").',
+                )
+            )
+    return warnings
 
 
 def run_checks(
     daily: pd.DataFrame, log: pd.DataFrame, today: date, sites_daily: pd.DataFrame | None = None
-) -> list[str]:
-    """All warnings for today; an empty list if everything looks fine.
-    sites_daily (load_all_sites) adds the check of all sites."""
+) -> list[MonitoringWarning]:
+    """All warnings for today, including the checked ones; an empty list if
+    everything looks fine. sites_daily (load_all_sites) adds the check of all
+    sites."""
     warnings = [
         check_freshness(daily, today),
         check_incomplete_days(daily, today),
         check_inbound_share(daily, today),
         check_bias(log, daily, today),
-        check_low_counts(sites_daily, today) if sites_daily is not None else None,
     ]
+    if sites_daily is not None:
+        warnings += check_low_counts(sites_daily, today)
     return [w for w in warnings if w is not None]
 
 
-def write_status(warnings: list[str], today: date, path: Path = STATUS_FILE) -> None:
-    """Save today's warnings as JSON, for the GitHub Action and the web page."""
+def write_status(warnings: list[MonitoringWarning], today: date, path: Path = STATUS_FILE) -> None:
+    """Save today's warnings as JSON, for the GitHub Action and the pages.
+
+    warnings          the texts for visitors of the open warnings
+    actions           what to do about each of them (same order), for the issue
+    checked_warnings  the texts of the warnings checked by hand
+
+    The web app reads warnings and checked_warnings; only the issue shows the
+    actions. An issue is only needed while warnings is not empty.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    status = {"checked_on": today.isoformat(), "warnings": warnings}
+    open_warnings = [w for w in warnings if not w.checked]
+    status = {
+        "checked_on": today.isoformat(),
+        "warnings": [w.text for w in open_warnings],
+        "actions": [w.action for w in open_warnings],
+        "checked_warnings": [w.text for w in warnings if w.checked],
+    }
     path.write_text(json.dumps(status, indent=2) + "\n", encoding="utf-8")

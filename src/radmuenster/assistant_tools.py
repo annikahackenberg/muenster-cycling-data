@@ -85,6 +85,7 @@ class AssistantData:
     log          the forecast log of the Warendorfer Straße (read_forecasts)
     today        today in Münster
     warnings     the current monitoring warnings
+    checked_warnings  warnings checked by hand, with the result of the check
     sites_log    the forecasts of all sites (SITES_FORECAST_FILE)
     backtest     the backtest of all sites (BACKTEST_FILE)
     """
@@ -95,6 +96,7 @@ class AssistantData:
     log: pd.DataFrame
     today: date
     warnings: list[str] = field(default_factory=list)
+    checked_warnings: list[str] = field(default_factory=list)
     sites_log: pd.DataFrame = field(default_factory=lambda: pd.DataFrame(columns=_LOG_COLUMNS))
     backtest: pd.DataFrame = field(default_factory=lambda: pd.DataFrame(columns=_LOG_COLUMNS))
 
@@ -416,9 +418,11 @@ def get_monitoring_status(data: AssistantData) -> dict:
             "freshness of the counts",
             "incomplete days in the last week",
             "jumps in the share of trips into the city (a sign that the site changed)",
-            "forecasts off in the same direction for weeks",
+            "forecasts off in the same direction for weeks, at the Warendorfer Straße and at all sites",
+            "sites far below their usual count compared with the other sites (maybe a partial outage)",
         ],
         "warnings": data.warnings,
+        "checked_by_hand": data.checked_warnings,
     }
 
 
@@ -527,7 +531,8 @@ TOOL_SPECS = [
     ToolSpec(
         "get_monitoring_status",
         "The warnings of the latest monitoring run of the forecast (data freshness, incomplete "
-        "days, measurement jumps, forecast bias).",
+        "days, measurement jumps, forecast bias, low counts at a site), and warnings that were "
+        "checked by hand, with the result of the check.",
         _schema({}, []),
         get_monitoring_status,
     ),

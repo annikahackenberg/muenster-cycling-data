@@ -256,12 +256,18 @@ else:
     )
 
 status = load_status()
+# A status.json from before checked warnings existed has no checked_warnings
+checked_warnings = status.get("checked_warnings", [])
 st.subheader("Monitoring")
 if status["warnings"]:
     for warning in status["warnings"]:
         st.warning(warning, icon="⚠️")
+elif checked_warnings:
+    st.success(f"No open warnings on {status['checked_on']}.", icon="✅")
 else:
     st.success(f"All checks passed on {status['checked_on']}.", icon="✅")
+for warning in checked_warnings:
+    st.info(f"Checked by hand: {warning}", icon="🔎")
 
 st.subheader("How it works")
 st.markdown("\n".join(f"{i}. **{step}:** {text}" for i, (step, text) in enumerate(HOW_IT_WORKS, 1)))

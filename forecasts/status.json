@@ -1,6 +1,8 @@
 {
-  "checked_on": "2026-10-27",
-  "warnings": [
-    "Far below the usual count compared with the other sites, maybe a partial outage: Kanalpromenade, Abschnitt 6 since 2026-10-23. Check them on the explore page; add real outages to SITE_FAULTS in sites.py."
+  "checked_on": "2026-10-28",
+  "warnings": [],
+  "actions": [],
+  "checked_warnings": [
+    "Kanalpromenade, Abschnitt 6: far below its usual count since 2026-10-23, compared with the other sites, maybe a partial outage. Checked on 2026-10-28: no outage; rain hits this leisure route much harder than the other sites (12-17 hours of rain a day), as in October 2025."
   ]
 }

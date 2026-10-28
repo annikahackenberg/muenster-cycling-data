@@ -253,8 +253,8 @@ spoken answer. It is a pipeline of three steps ([voice.py](src/radmuenster/voice
 | Text-to-speech | markdown is removed (tables become sentences) and the answer is read aloud | OpenAI `gpt-4o-mini-tts` |
 
 Claude does not hear or speak, so both ends use another provider. Like the Anthropic client, the OpenAI
-client is passed in, so the tests play the audio API. Below each spoken answer, the page shows how long
-each step took.
+client is passed in, so the tests play the audio API. Under "How this answer was found", the page shows
+how long each step took (transcription, answer, speech).
 
 How well does the transcription understand questions about Münster's counting sites?
 [voice_eval.py](src/radmuenster/voice_eval.py) measures it on recorded questions: the word error rate,

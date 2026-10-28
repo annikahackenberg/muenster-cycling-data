@@ -107,6 +107,8 @@ def summary(results: pd.DataFrame) -> str:
     """The measures over all recordings. The word error rate is pooled: all
     errors divided by all reference words, so short questions do not count
     more than long ones."""
+    if results.empty or not results["words"].sum():
+        return f"Recordings:        {len(results)}, no reference text to compare with"
     lines = [
         f"Recordings:        {len(results)}",
         f"Word error rate:   {results['errors'].sum() / results['words'].sum():.1%}",
@@ -128,8 +130,8 @@ def _assistant():
     import anthropic
 
     from radmuenster.assistant import MODEL, ask
+    from radmuenster.assistant_tools import read_assistant_data
     from radmuenster.forecast import today_in_muenster
-    from radmuenster.published import read_assistant_data
 
     client = anthropic.Anthropic()
     data = read_assistant_data(today_in_muenster())

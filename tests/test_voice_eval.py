@@ -1,5 +1,3 @@
-from types import SimpleNamespace
-
 import pandas as pd
 import pytest
 
@@ -11,19 +9,6 @@ from radmuenster.voice_eval import (
     summary,
     word_errors,
 )
-
-
-class FakeAudioClient:
-    """Plays OpenAI's transcription API with one fixed transcript."""
-
-    def __init__(self, transcript):
-        self.requests = []
-        self.audio = SimpleNamespace(transcriptions=SimpleNamespace(create=self._transcribe))
-        self.transcript = transcript
-
-    def _transcribe(self, **request):
-        self.requests.append(request)
-        return self.transcript
 
 
 def test_normalize():
@@ -58,7 +43,7 @@ def test_sites_mentioned_matches_whole_words():
     assert sites_mentioned("am Neuen Tor") == set()
 
 
-def test_evaluate(tmp_path):
+def test_evaluate(tmp_path, audio_client):
     (tmp_path / "one.wav").write_bytes(b"audio")
     questions = pd.DataFrame(
         {"file": ["one.wav"], "text": ["Wie viele Fahrten am Neutor?"], "tool": ["get_counts"]}
@@ -69,7 +54,7 @@ def test_evaluate(tmp_path):
         asked.append(question)
         return ["list_sites", "get_counts"]
 
-    client = FakeAudioClient(transcript="Wie viele Fahrten am neuen Tor?")
+    client = audio_client(transcript="Wie viele Fahrten am neuen Tor?")
     [row] = evaluate(questions, tmp_path, client, ask_assistant).to_dict("records")
     assert client.requests[0]["file"] == ("one.wav", b"audio")
     assert asked == ["Wie viele Fahrten am neuen Tor?"]
@@ -86,3 +71,8 @@ def test_summary_pools_the_errors():
     assert "25.0%" in text  # 3 errors of 12 words, not the mean of 0% and 150%
     assert "1 of 2 understood" in text
     assert "Expected tool" not in text
+
+
+def test_summary_without_reference_text():
+    assert "no reference text" in summary(pd.DataFrame())
+    assert "no reference text" in summary(pd.DataFrame({"errors": [1], "words": [0]}))

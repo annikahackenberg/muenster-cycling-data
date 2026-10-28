@@ -10,8 +10,13 @@ import time
 from datetime import date
 
 import anthropic
-import openai
 import streamlit as st
+
+try:
+    import openai
+except ImportError:
+    # Voice is optional: without the package, questions can only be typed
+    openai = None
 
 from radmuenster.assistant import (
     MAX_QUESTION_CHARS,
@@ -20,11 +25,11 @@ from radmuenster.assistant import (
     MODEL,
     DailyLimit,
     ask,
+    conversation_problem,
     question_problem,
 )
-from radmuenster.assistant_tools import AssistantData
+from radmuenster.assistant_tools import AssistantData, read_assistant_data
 from radmuenster.forecast import today_in_muenster
-from radmuenster.published import read_assistant_data
 from radmuenster.voice import AudioError, check_recording, speak, transcribe
 
 # The cached data is reloaded at most once an hour
@@ -99,6 +104,8 @@ def show(turn: dict) -> None:
             # Only a new answer plays by itself, not the earlier ones when the
             # page is drawn again
             st.audio(turn["audio"], format="audio/mpeg", autoplay=turn.pop("autoplay", False))
+        elif turn.get("speech_failed"):
+            st.caption("This answer could not be read aloud.")
         if turn.get("tool_calls") is not None:
             with st.expander(f"How this answer was found ({len(turn['tool_calls'])} tool calls)"):
                 for call in turn["tool_calls"]:
@@ -161,6 +168,7 @@ def answer_question(
         if call.error:
             logger.warning("Tool %s(%s) failed: %s", call.name, call.arguments, call.error)
     audio = None
+    speech_failed = False
     if spoken:
         with st.spinner("Speaking …"):
             try:
@@ -170,6 +178,7 @@ def answer_question(
             except openai.APIError:
                 # The answer is there as text; it only cannot be read aloud
                 logger.exception("Speech failed")
+                speech_failed = True
     assistant_turn = {
         "role": "assistant",
         "text": answer.text,
@@ -178,6 +187,7 @@ def answer_question(
         "output_tokens": answer.output_tokens,
         "audio": audio,
         "autoplay": True,
+        "speech_failed": speech_failed,
         "seconds": seconds,
     }
     st.session_state.history = answer.messages
@@ -210,8 +220,9 @@ today = today_in_muenster()
 data = load_data(today)
 client = get_client(key)
 limit = daily_limit()
-# Without an OpenAI key the assistant only takes typed questions
-voice_key = api_key("OPENAI_API_KEY")
+# Without an OpenAI key (or the openai package) the assistant only takes
+# typed questions
+voice_key = api_key("OPENAI_API_KEY") if openai is not None else None
 voice_client = get_voice_client(voice_key) if voice_key else None
 
 # history: the conversation as sent to the API (with tool calls);
@@ -241,13 +252,22 @@ if not st.session_state.chat:
         if st.button(example):
             question = example
 
+questions_asked = len(st.session_state.chat) // 2
 if recording is not None:
-    transcribed = transcribe_recording(voice_client, recording.getvalue())
-    question, stt_seconds = transcribed or (None, None)
+    if question:
+        st.info("Only the recording was used as the question, not the typed text.")
+    # Before the transcription, which is paid for too
+    problem = conversation_problem(questions_asked)
+    if problem:
+        st.warning(problem)
+        question = None
+    else:
+        transcribed = transcribe_recording(voice_client, recording.getvalue())
+        question, stt_seconds = transcribed or (None, None)
 
 if question:
     # The input field limits the length too, but only in the browser
-    problem = question_problem(question, questions_asked=len(st.session_state.chat) // 2)
+    problem = question_problem(question, questions_asked)
     if problem:
         st.warning(problem)
     elif not limit.take(today):

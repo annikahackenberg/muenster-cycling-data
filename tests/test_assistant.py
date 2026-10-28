@@ -16,6 +16,7 @@ from radmuenster.assistant import (
     TRUNCATED_NOTE,
     DailyLimit,
     ask,
+    conversation_problem,
     question_problem,
     system_prompt,
     tool_definitions,
@@ -215,6 +216,9 @@ def test_question_problem_checks_length_and_conversation():
     assert "500 characters" in question_problem("x" * (MAX_QUESTION_CHARS + 1), questions_asked=0)
     assert question_problem("x" * MAX_QUESTION_CHARS, questions_asked=MAX_QUESTIONS_PER_CONVERSATION - 1) is None
     assert "new conversation" in question_problem("Hi", questions_asked=MAX_QUESTIONS_PER_CONVERSATION)
+    # The same check without a question, before a recording is transcribed
+    assert conversation_problem(MAX_QUESTIONS_PER_CONVERSATION - 1) is None
+    assert "new conversation" in conversation_problem(MAX_QUESTIONS_PER_CONVERSATION)
 
 
 def test_daily_limit_counts_per_day():

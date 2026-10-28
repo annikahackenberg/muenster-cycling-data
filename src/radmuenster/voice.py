@@ -32,18 +32,19 @@ TTS_INSTRUCTIONS = (
 # Limits against cost and misuse, like the limits of the text questions.
 # A question takes a few seconds; the audio input records 16 kHz mono.
 MAX_AUDIO_SECONDS = 30
+# The length of a recording that cannot be read as WAV is unknown; its size
+# still has to be limited. 30 s of 48 kHz stereo WAV are 5.8 MB.
+MAX_AUDIO_BYTES = 6_000_000
 # Spoken answers are short (assistant.SPOKEN_NOTE); a longer text is cut at
 # the last sentence that fits. The API takes at most 4,096 characters.
 MAX_SPEECH_CHARS = 1500
 
 # The transcription model takes a prompt with words it should expect: the
 # site names are German and partly rare words ("Gasselstiege",
-# "Lütkenbecker Weg") that it would otherwise spell as it hears them
-TRANSCRIPTION_PROMPT = (
-    "Fragen zum Radverkehr in Münster, zu Prognosen, Wetter und den Zählstellen "
-    + ", ".join(site.name for site in SITES)
-    + "."
-)
+# "Lütkenbecker Weg") that it would otherwise spell as it hears them. Only
+# the names, without a German sentence: the model follows the language of
+# the prompt and would turn an English question into German.
+TRANSCRIPTION_PROMPT = ", ".join(site.name for site in SITES) + "."
 
 
 class AudioError(ValueError):
@@ -56,7 +57,8 @@ def audio_seconds(audio: bytes) -> float | None:
     try:
         with wave.open(io.BytesIO(audio)) as recording:
             return recording.getnframes() / recording.getframerate()
-    except (wave.Error, EOFError):
+    # A header with a frame rate of 0 is broken too
+    except (wave.Error, EOFError, ZeroDivisionError):
         return None
 
 
@@ -65,7 +67,8 @@ def check_recording(audio: bytes) -> None:
     seconds = audio_seconds(audio)
     if not audio or seconds == 0:
         raise AudioError("The recording is empty. Please try again.")
-    if seconds is not None and seconds > MAX_AUDIO_SECONDS:
+    too_long = seconds > MAX_AUDIO_SECONDS if seconds is not None else len(audio) > MAX_AUDIO_BYTES
+    if too_long:
         raise AudioError(f"Please ask in at most {MAX_AUDIO_SECONDS} seconds.")
 
 

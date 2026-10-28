@@ -212,17 +212,24 @@ def ask(
     return answer
 
 
-def question_problem(question: str, questions_asked: int) -> str | None:
-    """Why a question is not sent to the model, or None if it may be.
-    questions_asked counts the questions of this conversation so far."""
-    if len(question) > MAX_QUESTION_CHARS:
-        return f"Please ask in at most {MAX_QUESTION_CHARS} characters."
+def conversation_problem(questions_asked: int) -> str | None:
+    """Why the conversation takes no more questions, or None if it does.
+    questions_asked counts the questions of this conversation so far. Checked
+    before a recording is transcribed too, which costs money as well."""
     if questions_asked >= MAX_QUESTIONS_PER_CONVERSATION:
         return (
             f"This conversation has reached {MAX_QUESTIONS_PER_CONVERSATION} questions. "
             "Please start a new conversation."
         )
     return None
+
+
+def question_problem(question: str, questions_asked: int) -> str | None:
+    """Why a question is not sent to the model, or None if it may be.
+    questions_asked counts the questions of this conversation so far."""
+    if len(question) > MAX_QUESTION_CHARS:
+        return f"Please ask in at most {MAX_QUESTION_CHARS} characters."
+    return conversation_problem(questions_asked)
 
 
 class DailyLimit:

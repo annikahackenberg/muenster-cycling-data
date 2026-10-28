@@ -35,7 +35,14 @@ from radmuenster.findings import key_findings, site_findings, site_profiles
 from radmuenster.forecast import GLOBAL_MODEL_NAME, MODEL_NAME
 from radmuenster.monitoring import evaluate_forecasts
 from radmuenster.multi_site import site_counts_by_id
+from radmuenster.published import (
+    read_backtest,
+    read_forecast_log,
+    read_sites_forecast_log,
+    read_status,
+)
 from radmuenster.sites import SITES
+from radmuenster.static_page import DAILY_DATA, SITES_DATA, WEATHER_DATA, read_published
 
 # The site with its own forecast model; its daily counts carry the direction
 # checks. All other sites share one global model.
@@ -99,6 +106,23 @@ class AssistantData:
     checked_warnings: list[str] = field(default_factory=list)
     sites_log: pd.DataFrame = field(default_factory=lambda: pd.DataFrame(columns=_LOG_COLUMNS))
     backtest: pd.DataFrame = field(default_factory=lambda: pd.DataFrame(columns=_LOG_COLUMNS))
+
+
+def read_assistant_data(today: date) -> AssistantData:
+    """Everything the tools read, as published by the daily job (for the app
+    and voice_eval)."""
+    status = read_status()
+    return AssistantData(
+        sites_daily=read_published(SITES_DATA),
+        daily=read_published(DAILY_DATA),
+        weather=read_published(WEATHER_DATA),
+        log=read_forecast_log(),
+        today=today,
+        warnings=status["warnings"],
+        checked_warnings=status["checked_warnings"],
+        sites_log=read_sites_forecast_log(),
+        backtest=read_backtest(),
+    )
 
 
 def _number(value: float, digits: int = 0) -> float | int | None:

@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from radmuenster.voice import (
+    MAX_AUDIO_BYTES,
     MAX_AUDIO_SECONDS,
     STT_MODEL,
     TRANSCRIPTION_PROMPT,
@@ -28,27 +29,6 @@ def wav(seconds: float, rate: int = 16000) -> bytes:
     return buffer.getvalue()
 
 
-class FakeAudioClient:
-    """Plays OpenAI's audio API: client.audio.transcriptions.create() and
-    client.audio.speech.create(), keeping a copy of every request."""
-
-    def __init__(self, transcript="Wie viele Fahrten am Neutor?"):
-        self.requests = []
-        self.audio = SimpleNamespace(
-            transcriptions=SimpleNamespace(create=self._transcribe),
-            speech=SimpleNamespace(create=self._speak),
-        )
-        self.transcript = transcript
-
-    def _transcribe(self, **request):
-        self.requests.append(request)
-        return self.transcript
-
-    def _speak(self, **request):
-        self.requests.append(request)
-        return SimpleNamespace(content=b"mp3")
-
-
 def test_audio_seconds():
     assert audio_seconds(wav(2.5)) == 2.5
     assert audio_seconds(b"not a wav file") is None
@@ -64,24 +44,35 @@ def test_check_recording():
         check_recording(wav(0))
     with pytest.raises(AudioError, match=f"{MAX_AUDIO_SECONDS} seconds"):
         check_recording(wav(MAX_AUDIO_SECONDS + 1))
+    # Other formats are limited by their size
+    with pytest.raises(AudioError, match=f"{MAX_AUDIO_SECONDS} seconds"):
+        check_recording(b"x" * (MAX_AUDIO_BYTES + 1))
 
 
-def test_transcribe_sends_the_site_names():
-    client = FakeAudioClient(transcript="  Wie viele Fahrten am Neutor?\n")
+def test_broken_wav_header():
+    header = bytearray(wav(1))
+    header[24:28] = (0).to_bytes(4, "little")  # frame rate 0
+    assert audio_seconds(bytes(header)) is None
+
+
+def test_transcribe_sends_the_site_names(audio_client):
+    client = audio_client(transcript="  Wie viele Fahrten am Neutor?\n")
     assert transcribe(client, b"audio") == "Wie viele Fahrten am Neutor?"
     [request] = client.requests
     assert request["model"] == STT_MODEL
     assert request["file"] == ("question.wav", b"audio")
     assert request["prompt"] == TRANSCRIPTION_PROMPT
     assert "Gasselstiege" in TRANSCRIPTION_PROMPT
+    # Only names: a German sentence would pull English questions into German
+    assert "Fragen" not in TRANSCRIPTION_PROMPT
     # The model detects the language unless one is given
     assert "language" not in request
     transcribe(client, b"audio", language="de")
     assert client.requests[-1]["language"] == "de"
 
 
-def test_transcribe_takes_an_object_with_text():
-    client = FakeAudioClient(transcript=SimpleNamespace(text="Hallo"))
+def test_transcribe_takes_an_object_with_text(audio_client):
+    client = audio_client(transcript=SimpleNamespace(text="Hallo"))
     assert transcribe(client, b"audio") == "Hallo"
 
 
@@ -102,8 +93,8 @@ def test_speakable_cuts_at_a_sentence():
     assert speakable("one two three four", max_chars=10) == "one two"
 
 
-def test_speak():
-    client = FakeAudioClient()
+def test_speak(audio_client):
+    client = audio_client()
     assert speak(client, "**Etwa 4.300** Fahrten.") == b"mp3"
     [request] = client.requests
     assert request["input"] == "Etwa 4.300 Fahrten."

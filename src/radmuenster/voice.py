@@ -25,8 +25,8 @@ STT_MODEL = "gpt-4o-mini-transcribe"
 TTS_MODEL = "gpt-4o-mini-tts"
 TTS_VOICE = "nova"
 TTS_INSTRUCTIONS = (
-    "Speak in a calm, even voice at a moderate pace. "
-    "Pronounce German street names the German way."
+    "Speak in a calm, even voice at a moderate pace; German answers a little "
+    "faster. Pronounce German street names the German way."
 )
 
 # Limits against cost and misuse, like the limits of the text questions.

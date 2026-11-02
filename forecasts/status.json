@@ -1,12 +1,6 @@
 {
-  "checked_on": "2026-11-01",
-  "warnings": [
-    "No counts after 2026-10-30: the forecast uses older counts."
-  ],
-  "actions": [
-    "The city's daily update may have failed, or the download got an old version (compare with the city's repository)."
-  ],
-  "checked_warnings": [
-    "Kanalpromenade, Abschnitt 6: far below its usual count since 2026-10-23, compared with the other sites, maybe a partial outage. Checked on 2026-10-28: no outage; rain hits this leisure route much harder than the other sites (12-17 hours of rain a day), as in October 2025."
-  ]
+  "checked_on": "2026-11-02",
+  "warnings": [],
+  "actions": [],
+  "checked_warnings": []
 }

@@ -285,7 +285,9 @@ Partial outages, where a site counts about half of its usual trips or less, are 
 tell them from building works or a leisure route in bad weather. So the daily monitoring only warns when
 a site is far below its usual count compared with the other sites for three days in a row (the usual
 count is the median of the same weekday in the last weeks; dividing by the median of the other sites takes
-out rain, holidays and the season). Whether it is an outage is decided by hand; real outages go into
+out rain, holidays and the season). Rain and the season hit Kanalpromenade, Abschnitt 6 so much harder than
+the rest that it is only compared with the other two sections of the Kanalpromenade. Whether it is an outage
+is decided by hand; real outages go into
 `SITE_FAULTS` in [sites.py](src/radmuenster/sites.py) and are flagged as partial outages. Only a day with
 less than a tenth of the usual count is flagged automatically ("counted almost nothing"): no weather does
 that to one road but not the others.

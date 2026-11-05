@@ -3,6 +3,7 @@ import pandas as pd
 
 from radmuenster.data import parse_month_channels
 from radmuenster.sites import (
+    LOW_COUNT_PEERS,
     SITES,
     SITES_BY_ID,
     almost_zero_days,
@@ -169,6 +170,41 @@ def test_low_count_days_keep_a_run_across_flagged_days():
     # The city flagged the middle day: it is not judged, but does not end the run
     table.loc[(table["site_id"] == "s0") & (table["date"] == "2025-09-17"), "ok"] = False
     assert low_dates(table, "s0") == ["2025-09-15", "2025-09-16", "2025-09-18", "2025-09-19"]
+
+
+def test_low_count_days_compare_a_site_with_its_peers_only(monkeypatch):
+    monkeypatch.setattr("radmuenster.sites.LOW_COUNT_PEERS", {"s0": ["s1", "s2"]})
+    table = make_sites()
+    # Far below the other sites, but like its peers: no outage
+    for site_id in ["s0", "s1", "s2"]:
+        scale(table, site_id, "2025-09-15", "2025-09-19", 0.3)
+    assert low_dates(table, "s0") == []
+    # Sites without peers are still compared with all others
+    assert low_dates(table, "s1") == [f"2025-09-{day}" for day in range(15, 20)]
+    # Far below its peers: found
+    scale(table, "s0", "2025-10-13", "2025-10-17", 0.3)
+    assert low_dates(table, "s0") == [f"2025-10-{day}" for day in range(13, 18)]
+
+
+def test_low_count_days_do_not_judge_a_site_without_its_peers(monkeypatch):
+    monkeypatch.setattr("radmuenster.sites.LOW_COUNT_PEERS", {"s0": ["gone", "also gone"]})
+    table = make_sites()
+    scale(table, "s0", "2025-09-15", "2025-09-19", 0.3)
+    assert low_dates(table, "s0") == []
+
+
+def test_low_count_peers_are_known_sites():
+    for site_id, peers in LOW_COUNT_PEERS.items():
+        assert {site_id, *peers} <= set(SITES_BY_ID)
+
+
+def test_almost_zero_days_compare_with_all_sites_even_with_peers(monkeypatch):
+    monkeypatch.setattr("radmuenster.sites.LOW_COUNT_PEERS", {"s0": ["s1", "s2"]})
+    table = make_sites()
+    for site_id in ["s0", "s1", "s2"]:
+        scale(table, site_id, "2025-09-16", "2025-09-16", 0.03)
+    flagged = table[almost_zero_days(table)]
+    assert set(flagged["site_id"]) == {"s0", "s1", "s2"}
 
 
 def test_mark_site_faults_flags_the_days_with_their_reason():

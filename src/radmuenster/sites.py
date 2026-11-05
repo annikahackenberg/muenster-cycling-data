@@ -82,6 +82,7 @@ SITE_FAULTS = [
     ("300039331", "2024-07-01", "2024-07-04", "less than half the usual count, before days without counts"),
     ("300039331", "2024-07-21", "2024-07-30", "less than half the usual count from one day to the next"),
     ("300039331", "2026-05-16", "2026-05-30", "about half the usual count from one day to the next"),
+    ("300039331", "2026-09-13", "2026-10-20", "outbound counted a tenth of its usual count, about half in total"),
     ("300037405", "2026-04-04", "2026-05-01", "a third of the usual count or less, some days nothing"),
     ("300037405", "2026-05-07", "2026-05-22", "nothing or almost nothing for two weeks"),
     ("300037925", "2026-03-30", "2026-04-14", "almost nothing on some days, a third of the usual on others"),
@@ -236,12 +237,17 @@ def mark_site_faults(
 
 # A day is far below the usual count of its site if its count, relative to
 # the usual count of the site, is below LOW_LEVEL times the same relative
-# count of the other sites (the median over them): rain, holidays and the
+# count of other sites (the median over them): rain, holidays and the
 # season lower all sites, a partial outage only one.
 LOW_LEVEL = 0.5
-# ... on at least this many days in a row. Rainy days hit leisure routes
-# harder than the city, but rarely for three days in a row at half the count.
+# ... on at least this many days in a row.
 LOW_RUN_DAYS = 3
+# Sites compared with these sites only, not with all others. Rain and the
+# season hit Kanalpromenade, Abschnitt 6 far harder than the other sites, which
+# looked like an outage 11 times from 2024 to 2026. The other two sections
+# follow it closely enough, and outages added to the data for a test were
+# found at least as often. The other leisure routes did not need this.
+LOW_COUNT_PEERS = {"300037936": ["300037544", "100053305"]}
 # The usual count: median of the last BASELINE_DAYS usable days of the same
 # weekday, going back at most BASELINE_WEEKS weeks, so that it follows the
 # season, and reaches back to before an outage; with fewer than
@@ -302,17 +308,29 @@ def _wide(sites_daily: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, np.nda
 
 
 def _adjusted_levels(
-    counts: pd.DataFrame, ok: pd.DataFrame, special: np.ndarray, low: pd.DataFrame
+    counts: pd.DataFrame,
+    ok: pd.DataFrame,
+    special: np.ndarray,
+    low: pd.DataFrame,
+    peers: dict[str, list[str]],
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Each day's count relative to the usual count of its site, divided by
-    the median of the same over the other sites, and which days are judged
-    (see LOW_LEVEL). Days in low are left out of the usual counts and the
-    medians."""
+    the median of the same over the other sites, or its peers if it has any,
+    and which days are judged (see LOW_LEVEL). Days in low are left out of the
+    usual counts and the medians. Without data of its peers (a failed
+    download), a site is not judged."""
     usable = ok & ~low
     level = counts / _usual_counts(counts, usable)
     usable_level = level.where(usable)
     # The other sites only, so that a site's own outage does not lower its yardstick
-    city = pd.DataFrame({site: usable_level.drop(columns=site).median(axis=1) for site in counts.columns})
+    city = pd.DataFrame(
+        {
+            site: (
+                usable_level.reindex(columns=peers[site]) if site in peers else usable_level.drop(columns=site)
+            ).median(axis=1)
+            for site in counts.columns
+        }
+    )
     judged = ok & (city >= MIN_CITY_LEVEL) & ~special[:, None] & level.notna()
     return level / city, judged
 
@@ -326,7 +344,7 @@ def _aligned(wide: pd.DataFrame, sites_daily: pd.DataFrame) -> pd.Series:
 
 def low_count_days(sites_daily: pd.DataFrame) -> pd.Series:
     """True for usable days far below the usual count of their site compared
-    with the other sites (see LOW_LEVEL), aligned with sites_daily.
+    with other sites (see LOW_LEVEL), aligned with sites_daily.
 
     Meant as a warning, not a flag: the rule cannot tell a partial outage
     from building works or a leisure route in bad weather. Real outages go
@@ -335,7 +353,7 @@ def low_count_days(sites_daily: pd.DataFrame) -> pd.Series:
     counts, ok, special = _wide(sites_daily)
     low = pd.DataFrame(False, index=counts.index, columns=counts.columns)
     for _ in range(MAX_ITERATIONS):
-        adjusted, judged = _adjusted_levels(counts, ok, special, low)
+        adjusted, judged = _adjusted_levels(counts, ok, special, low, LOW_COUNT_PEERS)
         new = _long_runs(judged & (adjusted < LOW_LEVEL), judged)
         if new.equals(low):
             break
@@ -350,7 +368,8 @@ def almost_zero_days(sites_daily: pd.DataFrame) -> pd.Series:
     even heavy rain takes nine in ten cyclists off one road but not the
     others. So it is a flag, already from a single day."""
     counts, ok, special = _wide(sites_daily)
-    adjusted, judged = _adjusted_levels(counts, ok, special, pd.DataFrame(False, index=ok.index, columns=ok.columns))
+    no_low_days = pd.DataFrame(False, index=ok.index, columns=ok.columns)
+    adjusted, judged = _adjusted_levels(counts, ok, special, no_low_days, peers={})
     return _aligned(judged & (adjusted < ALMOST_ZERO_LEVEL), sites_daily)
 
 

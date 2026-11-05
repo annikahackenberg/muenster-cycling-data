@@ -164,7 +164,7 @@ def test_low_counts_show_the_result_of_a_check(monkeypatch):
     checked = [("low_counts", "a", "2026-10-17", "no outage, rain")]
     a, b = check_low_counts(table, date(2026, 10, 18), checked)
     assert a == MonitoringWarning(
-        "A: far below its usual count since 2026-10-15, compared with the other sites, maybe a partial "
+        "A: far below its usual count since 2026-10-15, compared with other sites, maybe a partial "
         "outage. Checked on 2026-10-17: no outage, rain.",
         checked=True,
     )

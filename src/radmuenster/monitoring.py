@@ -10,7 +10,7 @@ The checks look for problems the forecast itself does not notice:
   June 2024 and October 2025 (see PERIOD_STARTS in features.py)
 - the forecast is off in the same direction for weeks, at the Warendorfer
   Straße or at any site
-- a site counts far less than usual compared with the other sites (maybe a
+- a site counts far less than usual compared with other sites (maybe a
   partial outage)
 
 The warnings are public (web page, app, AI assistant), so each has a text for
@@ -78,13 +78,7 @@ LOW_COUNT_RECENT_DAYS = 7
 # counts). Checks: incomplete_days, inbound_share and bias (Warendorfer
 # Straße, DEFAULT_SITE), site_bias and low_counts (any site). Missing counts
 # and failed downloads cannot be checked away: they need a fix, or pass.
-CHECKED_WARNINGS = [
-    (
-        "low_counts", "300037936", "2026-10-28",
-        "no outage; rain hits this leisure route much harder than the other sites "
-        "(12-17 hours of rain a day), as in October 2025",
-    ),
-]
+CHECKED_WARNINGS: list[tuple[str, str, str, str]] = []
 CHECKS = {"incomplete_days", "inbound_share", "bias", "site_bias", "low_counts"}
 
 
@@ -349,7 +343,7 @@ def check_low_counts(
             gaps = judged.diff() > pd.Timedelta(days=LOW_COUNT_RECENT_DAYS)
             since = judged[gaps].iloc[-1] if gaps.any() else judged.iloc[0]
             return MonitoringWarning(
-                f"{name}: far below its usual count since {since:%Y-%m-%d}, compared with the other "
+                f"{name}: far below its usual count since {since:%Y-%m-%d}, compared with other "
                 "sites, maybe a partial outage.",
                 "Check it on the explore page; add a real outage to SITE_FAULTS in sites.py.",
             )

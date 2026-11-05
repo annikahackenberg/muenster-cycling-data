@@ -237,7 +237,7 @@ def mark_site_faults(
 
 # A day is far below the usual count of its site if its count, relative to
 # the usual count of the site, is below LOW_LEVEL times the same relative
-# count of the other sites (the median over them): rain, holidays and the
+# count of other sites (the median over them): rain, holidays and the
 # season lower all sites, a partial outage only one.
 LOW_LEVEL = 0.5
 # ... on at least this many days in a row.
@@ -344,7 +344,7 @@ def _aligned(wide: pd.DataFrame, sites_daily: pd.DataFrame) -> pd.Series:
 
 def low_count_days(sites_daily: pd.DataFrame) -> pd.Series:
     """True for usable days far below the usual count of their site compared
-    with the other sites (see LOW_LEVEL), aligned with sites_daily.
+    with other sites (see LOW_LEVEL), aligned with sites_daily.
 
     Meant as a warning, not a flag: the rule cannot tell a partial outage
     from building works or a leisure route in bad weather. Real outages go

@@ -140,7 +140,7 @@ then, with the weather forecast of that evening from Open-Meteo's archive of pre
 
 | 24 July to 21 October 2026, weather forecast of the evening before | WAPE |
 |---|---|
-| All 23 sites, global model | 9.2 % |
+| All 23 sites, global model | 9.0 % |
 | Single sites | 7.0 % (Promenade) to 18.4 % (Kanalpromenade, Abschnitt 6) |
 | Warendorfer Straße, own model / global model (same days) | 7.3 % / 7.9 % |
 
@@ -173,7 +173,7 @@ The same run checks whether the forecast can still be trusted and writes the war
 | Inbound share | the median share of the last 14 days differs by more than 5 points from the 90 days before (new measurement jump) |
 | Bias | the forecasts of the last 28 days are on average more than 8 % too high or too low |
 | Bias of all sites | the forecasts of a site over 28 days are more than 15 % too high or too low (sum of errors over sum of counts), one warning per site |
-| Low counts | a site is far below its usual count compared with the other sites for three days in a row (see below) |
+| Low counts | a site is far below its usual count compared with other sites for three days in a row (see below) |
 
 Run against the history, the inbound share check finds both known jumps within two weeks
 (26 June 2024, 5 November 2025) and one more episode: from mid-May to early June 2026 the share
@@ -283,7 +283,7 @@ Straße in October 2025) are not detected.
 
 Partial outages, where a site counts about half of its usual trips or less, are harder: a rule cannot
 tell them from building works or a leisure route in bad weather. So the daily monitoring only warns when
-a site is far below its usual count compared with the other sites for three days in a row (the usual
+a site is far below its usual count compared with other sites for three days in a row (the usual
 count is the median of the same weekday in the last weeks; dividing by the median of the other sites takes
 out rain, holidays and the season). Rain and the season hit Kanalpromenade, Abschnitt 6 so much harder than
 the rest that it is only compared with the other two sections of the Kanalpromenade. Whether it is an outage

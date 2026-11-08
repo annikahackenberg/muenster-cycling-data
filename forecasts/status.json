@@ -1,10 +1,10 @@
 {
-  "checked_on": "2026-11-07",
+  "checked_on": "2026-11-08",
   "warnings": [
-    "Forecasts for Grevener Stra\u00dfe were on average -22% off (15 days of the last 28): the level of the site may have shifted, or its counts are wrong."
+    "Forecasts for Grevener Stra\u00dfe were on average -20% off (16 days of the last 28): the level of the site may have shifted, or its counts are wrong."
   ],
   "actions": [
-    "Check the site on the explore page; add a real outage to SITE_FAULTS in sites.py. If it needs nothing done, add (\"site_bias\", \"300039331\", \"2026-11-07\", \"<result>\") to CHECKED_WARNINGS in monitoring.py."
+    "Check the site on the explore page; add a real outage to SITE_FAULTS in sites.py. If it needs nothing done, add (\"site_bias\", \"300039331\", \"2026-11-08\", \"<result>\") to CHECKED_WARNINGS in monitoring.py."
   ],
   "checked_warnings": []
 }

@@ -1,4 +1,5 @@
-"""Forecast page: tomorrow's forecast at all sites, and the details of one."""
+"""Forecast page: the details of one site (the Warendorfer Straße first), then
+tomorrow's forecast at all sites."""
 
 from __future__ import annotations
 
@@ -208,11 +209,34 @@ own_backtest = backtest[backtest["model"] == MODEL_NAME]
 counts = load_site_counts()
 
 backtest_wapes, notes = {}, {}
+overview = None
 if global_log.empty:
     st.info("Forecasts for all sites start with the next daily run; until then, only the Warendorfer Straße.")
     choices = [DEFAULT_SITE]
 else:
     overview = sites_overview(global_log, log, counts, today, global_backtest, own_backtest)
+    choices = overview["site_id"].tolist()
+    backtest_wapes = dict(zip(overview["site_id"], overview["error"].where(overview["error_basis"] == "backtest")))
+    notes = dict(zip(overview["site_id"], overview["note"]))
+
+# One site in detail first, like the static page; the overview of all sites
+# follows, so that the page does not open with a table of 23 rows
+site_id = st.selectbox(
+    "Counting site", choices, index=choices.index(DEFAULT_SITE) if DEFAULT_SITE in choices else 0,
+    format_func=lambda site: SITES_BY_ID[site].name,
+)
+if site_id == DEFAULT_SITE:
+    show_details(
+        DEFAULT_SITE, log, load_recent_counts(today - timedelta(weeks=CHART_WEEKS)),
+        backtest_wapes.get(DEFAULT_SITE, float("nan")),
+    )
+else:
+    show_details(
+        site_id, global_log[global_log["site_id"] == site_id], counts[site_id],
+        backtest_wapes.get(site_id, float("nan")), notes.get(site_id, ""),
+    )
+
+if overview is not None:
     day = global_log["forecast_date"].max()
     st.subheader(f"{day:%A, %d %B %Y} at all sites")
     st.table(
@@ -233,29 +257,12 @@ else:
         "vs. typical: compared with the same weekday over the four weeks before. Error: how far "
         "the forecasts were off on average (WAPE) in the last 4 weeks; ¹ until a site has a week "
         "of real forecasts, from a backtest of the last 90 days with the weather forecast of each "
-        "evening. The Warendorfer Straße has its own model, all other sites share one."
+        "evening. The Warendorfer Straße has its own model, all other sites share one. Choose a "
+        "site under Counting site above for its details."
     )
     for name, note in zip(overview["site_name"], overview["note"]):
         if note:
             st.caption(f"\\* {name}: {note}")
-    choices = overview["site_id"].tolist()
-    backtest_wapes = dict(zip(overview["site_id"], overview["error"].where(overview["error_basis"] == "backtest")))
-    notes = dict(zip(overview["site_id"], overview["note"]))
-
-site_id = st.selectbox(
-    "Details for", choices, index=choices.index(DEFAULT_SITE) if DEFAULT_SITE in choices else 0,
-    format_func=lambda site: SITES_BY_ID[site].name,
-)
-if site_id == DEFAULT_SITE:
-    show_details(
-        DEFAULT_SITE, log, load_recent_counts(today - timedelta(weeks=CHART_WEEKS)),
-        backtest_wapes.get(DEFAULT_SITE, float("nan")),
-    )
-else:
-    show_details(
-        site_id, global_log[global_log["site_id"] == site_id], counts[site_id],
-        backtest_wapes.get(site_id, float("nan")), notes.get(site_id, ""),
-    )
 
 status = load_status()
 st.subheader("Monitoring")

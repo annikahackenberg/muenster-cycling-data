@@ -104,7 +104,7 @@ def show_details(
     day = forecast["forecast_date"]
     weekday = f"{day:%A}"
     context = forecast_context(forecast, daily)
-    st.caption(f"Counting site {SITES_BY_ID[site_id].name} · trips per day, both directions")
+    st.caption("Trips per day, both directions")
     if note:
         st.info(f"{note} Its days are flagged, so the chart shows no counts.", icon="ℹ️")
 
@@ -209,22 +209,24 @@ own_backtest = backtest[backtest["model"] == MODEL_NAME]
 counts = load_site_counts()
 
 backtest_wapes, notes = {}, {}
-overview = None
-if global_log.empty:
+overview = None if global_log.empty else sites_overview(
+    global_log, log, counts, today, global_backtest, own_backtest
+)
+if overview is None:
     st.info("Forecasts for all sites start with the next daily run; until then, only the Warendorfer Straße.")
     choices = [DEFAULT_SITE]
 else:
-    overview = sites_overview(global_log, log, counts, today, global_backtest, own_backtest)
-    choices = overview["site_id"].tolist()
+    # The overview is sorted by the forecast, which changes every evening: the
+    # list keeps the Warendorfer Straße first and the others by name. It is
+    # always there: its details come from its own log, not the overview
+    others = sorted(set(overview["site_id"]) - {DEFAULT_SITE}, key=lambda site: SITES_BY_ID[site].name)
+    choices = [DEFAULT_SITE, *others]
     backtest_wapes = dict(zip(overview["site_id"], overview["error"].where(overview["error_basis"] == "backtest")))
     notes = dict(zip(overview["site_id"], overview["note"]))
 
-# One site in detail first, like the static page; the overview of all sites
-# follows, so that the page does not open with a table of 23 rows
-site_id = st.selectbox(
-    "Counting site", choices, index=choices.index(DEFAULT_SITE) if DEFAULT_SITE in choices else 0,
-    format_func=lambda site: SITES_BY_ID[site].name,
-)
+# The forecast of one site first, like the static page; the overview of all
+# sites follows, so that the page does not open with a table of 23 rows
+site_id = st.selectbox("Counting site", choices, format_func=lambda site: SITES_BY_ID[site].name)
 if site_id == DEFAULT_SITE:
     show_details(
         DEFAULT_SITE, log, load_recent_counts(today - timedelta(weeks=CHART_WEEKS)),
@@ -238,7 +240,8 @@ else:
 
 if overview is not None:
     day = global_log["forecast_date"].max()
-    st.subheader(f"{day:%A, %d %B %Y} at all sites")
+    st.divider()
+    st.subheader(f"All counting sites, {day:%A, %d %B %Y}")
     st.table(
         pd.DataFrame(
             {

@@ -9,6 +9,7 @@ from radmuenster.monitoring import (
     CHECKS,
     MonitoringWarning,
     check_site_bias,
+    used_known_faults,
     evaluate_site_forecasts,
     check_low_counts,
     check_bias,
@@ -42,8 +43,9 @@ def test_freshness_is_fine_with_yesterday():
 
 def test_freshness_warns_without_yesterday():
     warning = check_freshness(make_daily(end="2026-10-10"), TODAY)
-    assert "2026-10-10" in warning.text
+    assert "Warendorfer Straße after 2026-10-10" in warning.text
     assert "city's repository" in warning.action
+    assert "started too late" in warning.action
 
 
 def test_freshness_accepts_a_cut_short_day():
@@ -218,10 +220,28 @@ def make_site_log(site_id: str, name: str, dates: pd.DatetimeIndex, prediction: 
     )
 
 
-def make_counts(dates: pd.DatetimeIndex, count: float, incomplete: tuple[str, ...] = ()) -> pd.DataFrame:
-    counts = pd.DataFrame({"count": count, "complete": True}, index=dates)
+def make_counts(
+    dates: pd.DatetimeIndex, count: float, incomplete: tuple[str, ...] = (), known_faults: tuple[str, ...] = ()
+) -> pd.DataFrame:
+    """Daily counts; known faults are incomplete too, as in site_counts."""
+    counts = pd.DataFrame({"count": count, "complete": True, "known_fault": False}, index=dates)
     counts.loc[pd.DatetimeIndex(incomplete), "complete"] = False
+    counts.loc[pd.DatetimeIndex(known_faults), ["complete", "known_fault"]] = [False, True]
     return counts
+
+
+def test_used_known_faults_looks_at_the_input_days_of_each_forecast():
+    dates = pd.date_range("2025-01-01", "2026-10-31", freq="D")
+    daily = make_counts(dates, 100.0, known_faults=("2026-10-01",))
+    forecast_dates = pd.Series(
+        pd.to_datetime(["2026-10-02", "2026-10-03", "2026-10-09", "2026-10-10", "2026-10-29", "2027-09-30"])
+    )
+    # 1 day after: not used (the day before is never an input); 2 and 8 days
+    # after: used (lag_2, mean_7d); 9: not; 28: used (same weekday 4 weeks
+    # earlier); 364: used (lag_364)
+    assert used_known_faults(forecast_dates, daily).tolist() == [False, True, True, False, True, True]
+    # Counts without the column have no known faults
+    assert not used_known_faults(forecast_dates, daily[["count", "complete"]]).any()
 
 
 def test_evaluate_site_forecasts_matches_site_and_day():
@@ -266,6 +286,38 @@ def test_site_bias_checked_by_hand_comes_back_after_two_weeks():
     assert warning_on(date(2026, 10, 30)).checked
     # From 14 forecasts after the check on (21 October to 3 November), the bias warns again
     assert not warning_on(date(2026, 11, 4)).checked
+
+
+def test_site_bias_leaves_out_forecasts_that_used_an_outage_marked_later():
+    # Like the Grevener Straße in October 2026: the counter counted too little
+    # until 20 October; forecasts that used those days were too low
+    today = date(2026, 11, 10)
+    outage = pd.date_range("2026-09-13", "2026-10-20", freq="D")
+    dates = pd.date_range("2026-08-01", "2026-11-09", freq="D")
+    after = dates[dates > outage[-1]]
+    # The forecasts of the first week after it got the low counts as lag_2 and in mean_7d
+    first_week = after[:8]
+    log = make_site_log("a", "A", after, 100.0)
+    log.loc[log["forecast_date"].isin(first_week), "prediction"] = 60.0
+    marked = make_counts(dates, 100.0, known_faults=tuple(outage.strftime("%Y-%m-%d")))
+    assert check_site_bias(log, {"a": marked}, today, checked=[]) == []
+    # Before the outage was marked, the same forecasts warned
+    unmarked = make_counts(dates, 100.0)
+    [warning] = check_site_bias(log, {"a": unmarked}, today, checked=[])
+    assert "-16% off" in warning.text
+
+
+def test_bias_leaves_out_forecasts_that_used_a_known_fault():
+    daily = make_daily()
+    daily["known_fault"] = False
+    daily.loc["2026-09-20":"2026-09-30", ["complete", "known_fault"]] = [False, True]
+    # 17 forecasts of complete days, all 17 % too high
+    log = make_log(pd.date_range("2026-09-14", "2026-10-11", freq="D"), 7000.0)
+    assert check_bias(log, daily.drop(columns="known_fault"), TODAY, checked=[]) is not None
+    # The 11 forecasts after the fault all used it: 6 are left, too few to judge
+    assert check_bias(log, daily, TODAY, checked=[]) is None
+    # The evaluation itself keeps them (the accuracy on the pages)
+    assert len(evaluate_forecasts(log, daily)) == 17
 
 
 def test_site_bias_is_fine_without_bias():

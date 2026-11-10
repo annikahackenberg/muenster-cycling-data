@@ -101,6 +101,20 @@ def calendar_features(dates: pd.DatetimeIndex) -> pd.DataFrame:
     )
 
 
+SAME_WEEKDAY_WEEKS = 4
+
+# How many days before a date lie the days whose counts lag_features uses:
+# the lags, the 7 days of mean_7d and the same weekday 1 to
+# SAME_WEEKDAY_WEEKS weeks earlier (a test checks this against lag_features)
+INPUT_DAYS_BEFORE = tuple(
+    sorted(
+        set(LAGS)
+        | set(range(MIN_LAG, MIN_LAG + 7))
+        | {7 * week for week in range(1, SAME_WEEKDAY_WEEKS + 1)}
+    )
+)
+
+
 def lag_features(daily: pd.DataFrame, dates: pd.DatetimeIndex) -> pd.DataFrame:
     """Past counts for each date, using only days at least MIN_LAG days earlier.
 
@@ -134,7 +148,7 @@ def lag_features(daily: pd.DataFrame, dates: pd.DatetimeIndex) -> pd.DataFrame:
     # rolling(7) at day t covers t-6 ... t; looked up MIN_LAG days before the
     # date it covers date-8 ... date-2
     columns["mean_7d"] = days_before(regular.rolling(7, min_periods=4).mean(), MIN_LAG)
-    same_weekday = np.column_stack([days_before(regular, 7 * w) for w in range(1, 5)])
+    same_weekday = np.column_stack([days_before(regular, 7 * w) for w in range(1, SAME_WEEKDAY_WEEKS + 1)])
     # Mean over the weeks that have a value; all four missing gives NaN
     columns["same_weekday_4w"] = pd.DataFrame(same_weekday).mean(axis=1).to_numpy()
 

@@ -36,22 +36,26 @@ SCALED_COLUMNS = [*(f"lag_{k}" for k in LAGS), "mean_7d", "same_weekday_4w"]
 
 def site_counts(site_daily: pd.DataFrame) -> pd.DataFrame:
     """One site of load_all_sites as daily counts like to_daily: count is the
-    total, complete means no flag (ok), indexed by date."""
+    total, complete means no flag (ok), known_fault a day of SITE_FAULTS
+    (False if site_daily has no such column), indexed by date."""
+    known_fault = site_daily["known_fault"] if "known_fault" in site_daily else False
     return pd.DataFrame(
         {
             "count": site_daily["total"].to_numpy(dtype=float),
             "complete": site_daily["ok"].to_numpy(dtype=bool),
+            "known_fault": pd.Series(known_fault, index=site_daily.index).to_numpy(dtype=bool),
         },
         index=pd.DatetimeIndex(site_daily["date"], name="date"),
     )
 
 
 def site_counts_by_id(sites_daily: pd.DataFrame, daily: pd.DataFrame) -> dict[str, pd.DataFrame]:
-    """Daily counts (count, complete) of every site in sites_daily
+    """Daily counts (count, complete, known_fault) of every site in sites_daily
     (load_all_sites), by site id. The Warendorfer Straße takes daily
     (to_daily): only it knows the direction faults of that site."""
     return {
-        site_id: daily[["count", "complete"]] if site_id == DEFAULT_SITE else site_counts(rows)
+        site_id: daily[["count", "complete"]].assign(known_fault=daily.get("known_fault", False))
+        if site_id == DEFAULT_SITE else site_counts(rows)
         for site_id, rows in sites_daily.groupby("site_id")
     }
 

@@ -6,6 +6,7 @@ from radmuenster.calendars import LECTURE_PERIODS, SCHOOL_HOLIDAYS_NRW
 from radmuenster.features import (
     academic_features,
     build_features,
+    INPUT_DAYS_BEFORE,
     calendar_features,
     lag_features,
     measurement_period,
@@ -109,6 +110,21 @@ def test_lags_ignore_the_last_day_before_the_forecast():
     changed = daily.copy()
     changed.loc[["2024-02-19", "2024-02-20"], "count"] = 99999
     pd.testing.assert_frame_equal(lag_features(changed, day), before)
+
+
+def test_input_days_before_are_the_days_lag_features_use():
+    # No special days off from 1 to 27 September 2026 or on 30 September 2025
+    date = pd.Timestamp("2026-09-29")
+    dates = pd.date_range("2025-01-01", "2026-09-30", freq="D", name="date")
+    daily = pd.DataFrame({"count": 1000.0 + np.arange(len(dates)), "complete": True}, index=dates)
+    base = lag_features(daily, pd.DatetimeIndex([date]))
+    used = set()
+    for k in range(1, 400):
+        changed = daily.copy()
+        changed.loc[date - pd.Timedelta(days=k), "count"] += 500
+        if not lag_features(changed, pd.DatetimeIndex([date])).equals(base):
+            used.add(k)
+    assert used == set(INPUT_DAYS_BEFORE)
 
 
 def test_lags_skip_incomplete_days():

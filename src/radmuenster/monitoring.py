@@ -78,7 +78,16 @@ LOW_COUNT_RECENT_DAYS = 7
 # counts). Checks: incomplete_days, inbound_share and bias (Warendorfer
 # Straße, DEFAULT_SITE), site_bias and low_counts (any site). Missing counts
 # and failed downloads cannot be checked away: they need a fix, or pass.
-CHECKED_WARNINGS: list[tuple[str, str, str, str]] = []
+CHECKED_WARNINGS: list[tuple[str, str, str, str]] = [
+    (
+        "site_bias",
+        "300039331",
+        "2026-11-10",
+        "the forecasts were too low until the outage of 13 September to 20 October 2026 was marked "
+        "on 5 November 2026 (the model took its low counts as normal); the total counts since "
+        "21 October 2026 are plausible, the split by direction is not",
+    ),
+]
 CHECKS = {"incomplete_days", "inbound_share", "bias", "site_bias", "low_counts"}
 
 

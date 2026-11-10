@@ -83,8 +83,9 @@ CHECKED_WARNINGS: list[tuple[str, str, str, str]] = [
         "site_bias",
         "300039331",
         "2026-11-10",
-        "the forecasts were too low until the outage of 13 September to 20 October was marked "
-        "on 5 November (the model took its low counts as normal); the counts since 21 October are plausible",
+        "the forecasts were too low until the outage of 13 September to 20 October 2026 was marked "
+        "on 5 November 2026 (the model took its low counts as normal); the total counts since "
+        "21 October 2026 are plausible, the split by direction is not",
     ),
 ]
 CHECKS = {"incomplete_days", "inbound_share", "bias", "site_bias", "low_counts"}

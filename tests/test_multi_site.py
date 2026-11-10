@@ -31,22 +31,24 @@ def test_site_counts_takes_the_total_and_the_ok_flag():
         }
     )
     counts = site_counts(site_daily)
-    assert list(counts.columns) == ["count", "complete", "known_fault"]
-    assert not counts["known_fault"].any()  # site_daily without the column
+    assert list(counts.columns) == ["count", "complete", "marked_on"]
+    assert counts["marked_on"].isna().all()  # site_daily without the column
     assert counts["count"].iloc[0] == 1200
     assert counts["complete"].tolist() == [True, False]
 
 
-def test_site_counts_takes_the_known_faults():
+def test_site_counts_takes_the_day_a_fault_was_marked():
     site_daily = pd.DataFrame(
         {
             "date": pd.to_datetime(["2024-01-01", "2024-01-02"]),
             "total": [1200.0, 300.0],
             "ok": [True, False],
-            "known_fault": [False, True],
+            "marked_on": pd.to_datetime([None, "2026-11-05"]),
         }
     )
-    assert site_counts(site_daily)["known_fault"].tolist() == [False, True]
+    marked_on = site_counts(site_daily)["marked_on"]
+    assert marked_on.isna().tolist() == [True, False]
+    assert marked_on.iloc[1] == pd.Timestamp("2026-11-05")
 
 
 def test_sites_table_stacks_the_sites_with_their_own_periods():
@@ -101,6 +103,6 @@ def test_site_counts_by_id_takes_the_own_counts_of_the_warendorfer_strasse():
     )
     counts = site_counts_by_id(site_daily, daily)
     assert counts["100034983"]["complete"].tolist() == [False]
-    assert list(counts["100034983"].columns) == ["count", "complete", "known_fault"]
-    assert counts["100034983"]["known_fault"].tolist() == [False]
+    assert list(counts["100034983"].columns) == ["count", "complete", "marked_on"]
+    assert counts["100034983"]["marked_on"].isna().all()
     assert counts["x"]["count"].tolist() == [50.0]

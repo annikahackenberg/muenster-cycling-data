@@ -114,17 +114,20 @@ def test_quiet_day_with_dead_direction_is_incomplete():
 def test_day_in_known_fault_is_incomplete():
     # Two normal days; only the second lies in the known fault
     df = parse_month_csv(make_csv("2026-05-04", [40] * 192), SITE)
-    faults = [("2026-05-05", "2026-05-05", "test")]
+    faults = [("2026-05-05", "2026-05-05", "2026-10-13", "test")]
     daily = to_daily(df, known_faults=faults)
     assert daily["known_fault"].tolist() == [False, True]
+    assert daily["marked_on"].isna().tolist() == [True, False]
+    assert daily["marked_on"].iloc[1] == pd.Timestamp("2026-10-13")
     assert daily["complete"].tolist() == [True, False]
     # The counts themselves stay as published
     assert daily["count"].tolist() == [3840, 3840]
 
 
 def test_known_faults_are_valid_ranges():
-    for first, last, reason in KNOWN_FAULTS:
-        assert pd.Timestamp(first) <= pd.Timestamp(last)
+    for first, last, marked_on, reason in KNOWN_FAULTS:
+        # A fault is marked after it ended
+        assert pd.Timestamp(first) <= pd.Timestamp(last) < pd.Timestamp(marked_on)
         assert reason
 
 

@@ -73,24 +73,25 @@ SITES_BY_ID = {site.id: site for site in SITES}
 # sites, from one day to the next, and recovered as suddenly. Candidates come
 # from low_count_days (a monitoring warning) and notebook 03; whether a drop
 # is an outage, building works or the weather stays a human decision.
-# (site id, first day, last day, reason)
+# (site id, first day, last day, day marked, reason); the day marked is the
+# day the entry reached main (see KNOWN_FAULTS)
 SITE_FAULTS = [
-    ("100035541", "2021-01-31", "2021-03-13", "about half the usual count from one day to the next"),
-    ("100035541", "2021-10-03", "2021-10-17", "about half the usual count, between days the city flagged"),
-    ("100034982", "2024-06-14", "2024-06-27", "about half the usual count from one day to the next"),
-    ("300039328", "2024-06-16", "2024-07-30", "less than half the usual count from one day to the next"),
-    ("300039331", "2024-07-01", "2024-07-04", "less than half the usual count, before days without counts"),
-    ("300039331", "2024-07-21", "2024-07-30", "less than half the usual count from one day to the next"),
-    ("300039331", "2026-05-16", "2026-05-30", "about half the usual count from one day to the next"),
-    ("300039331", "2026-09-13", "2026-10-20", "outbound counted a tenth of its usual count, about half in total"),
-    ("300037405", "2026-04-04", "2026-05-01", "a third of the usual count or less, some days nothing"),
-    ("300037405", "2026-05-07", "2026-05-22", "nothing or almost nothing for two weeks"),
-    ("300037925", "2026-03-30", "2026-04-14", "almost nothing on some days, a third of the usual on others"),
-    ("300037925", "2026-05-04", "2026-05-20", "nothing on some days, about half the usual on others"),
+    ("100035541", "2021-01-31", "2021-03-13", "2026-10-22", "about half the usual count from one day to the next"),
+    ("100035541", "2021-10-03", "2021-10-17", "2026-10-22", "about half the usual count, between days the city flagged"),
+    ("100034982", "2024-06-14", "2024-06-27", "2026-10-22", "about half the usual count from one day to the next"),
+    ("300039328", "2024-06-16", "2024-07-30", "2026-10-22", "less than half the usual count from one day to the next"),
+    ("300039331", "2024-07-01", "2024-07-04", "2026-10-22", "less than half the usual count, before days without counts"),
+    ("300039331", "2024-07-21", "2024-07-30", "2026-10-22", "less than half the usual count from one day to the next"),
+    ("300039331", "2026-05-16", "2026-05-30", "2026-10-22", "about half the usual count from one day to the next"),
+    ("300039331", "2026-09-13", "2026-10-20", "2026-11-05", "outbound counted a tenth of its usual count, about half in total"),
+    ("300037405", "2026-04-04", "2026-05-01", "2026-10-22", "a third of the usual count or less, some days nothing"),
+    ("300037405", "2026-05-07", "2026-05-22", "2026-10-22", "nothing or almost nothing for two weeks"),
+    ("300037925", "2026-03-30", "2026-04-14", "2026-10-22", "almost nothing on some days, a third of the usual on others"),
+    ("300037925", "2026-05-04", "2026-05-20", "2026-10-22", "nothing on some days, about half the usual on others"),
     # The Warendorfer Straße: its direction checks (to_daily) need the labelled
     # directions, which this table does not use
-    (DEFAULT_SITE, "2024-06-03", "2024-06-11", "inbound counted almost nothing"),
-] + [(DEFAULT_SITE, first, last, reason) for first, last, reason in KNOWN_FAULTS]
+    (DEFAULT_SITE, "2024-06-03", "2024-06-11", "2026-10-22", "inbound counted almost nothing"),
+] + [(DEFAULT_SITE, *fault) for fault in KNOWN_FAULTS]
 
 
 # A channel that carried at least this share of the trips in the 4 weeks
@@ -217,19 +218,22 @@ def load_all_sites(
 
 
 def mark_site_faults(
-    sites_daily: pd.DataFrame, faults: list[tuple[str, str, str, str]] = SITE_FAULTS
+    sites_daily: pd.DataFrame, faults: list[tuple[str, str, str, str, str]] = SITE_FAULTS
 ) -> pd.DataFrame:
-    """sites_daily with the column known_fault (a day in faults), its reason
-    in note and ok updated."""
+    """sites_daily with the columns known_fault (a day in faults) and
+    marked_on (the day it was marked, NaT if none), its reason in note and ok
+    updated."""
     marked = sites_daily.copy()
     marked.insert(marked.columns.get_loc("note"), "known_fault", False)
-    for site_id, first, last, reason in faults:
+    marked.insert(marked.columns.get_loc("note"), "marked_on", pd.NaT)
+    for site_id, first, last, marked_on, reason in faults:
         days = (
             (marked["site_id"] == site_id)
             & (marked["date"] >= pd.Timestamp(first))
             & (marked["date"] <= pd.Timestamp(last))
         )
         marked.loc[days, "known_fault"] = True
+        marked.loc[days, "marked_on"] = pd.Timestamp(marked_on)
         marked.loc[days, "note"] = reason
     marked["ok"] = marked["ok"] & ~marked["known_fault"]
     return marked

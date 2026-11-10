@@ -41,17 +41,20 @@ MIN_DIRECTION_SHARE = 0.25
 MIN_COUNT_FOR_SHARE_CHECK = 500
 
 # Faults of DEFAULT_SITE that the checks above miss, found by looking at the
-# data: (first day, last day, reason), both days inclusive. The city never
-# corrects old months, so this list only grows.
+# data: (first day, last day, day marked, reason), both days inclusive. The
+# day marked is the day the entry reached main: forecasts made before took
+# these days as normal (see used_known_faults in monitoring.py). The city
+# never corrects old months, so this list only grows.
 KNOWN_FAULTS = [
     (
         "2026-05-05",
         "2026-06-02",
+        "2026-10-13",
         "inbound counted 30-50 % less than a year earlier while outbound was normal; "
         "the inbound share fell gradually from 0.45 to 0.35 and recovered overnight on 3 June",
     ),
-    ("2026-07-13", "2026-07-13", "first day of the inbound outage of 14-18 July, inbound share 0.40"),
-    ("2026-07-19", "2026-07-19", "last day of the inbound outage of 14-18 July, inbound share 0.38"),
+    ("2026-07-13", "2026-07-13", "2026-10-13", "first day of the inbound outage of 14-18 July, inbound share 0.40"),
+    ("2026-07-19", "2026-07-19", "2026-10-13", "last day of the inbound outage of 14-18 July, inbound share 0.38"),
 ]
 
 # Days after the end of a month until its file counts as final (see is_final)
@@ -215,7 +218,7 @@ def load_site_intervals(
 
 
 def to_daily(
-    intervals: pd.DataFrame, known_faults: list[tuple[str, str, str]] = KNOWN_FAULTS
+    intervals: pd.DataFrame, known_faults: list[tuple[str, str, str, str]] = KNOWN_FAULTS
 ) -> pd.DataFrame:
     """Aggregate 15-minute counts to daily totals.
 
@@ -231,6 +234,7 @@ def to_daily(
                        at least MIN_COUNT_FOR_SHARE_CHECK trips); both mean a
                        (partly) dead channel
       known_fault      True if the day lies in one of known_faults
+      marked_on        the day that fault was marked (NaT if none)
       complete         True if the day is complete, has no fault status, no
                        direction fault and no known fault
     """
@@ -257,8 +261,10 @@ def to_daily(
     one_weak = (both >= MIN_COUNT_FOR_SHARE_CHECK) & (weaker / both < MIN_DIRECTION_SHARE)
     daily["direction_fault"] = one_dead | one_weak
     daily["known_fault"] = False
-    for first, last, _ in known_faults:
+    daily["marked_on"] = pd.NaT
+    for first, last, marked_on, _ in known_faults:
         daily.loc[first:last, "known_fault"] = True
+        daily.loc[first:last, "marked_on"] = pd.Timestamp(marked_on)
     daily["complete"] = (
         (daily["n_intervals"] >= MIN_INTERVALS_PER_DAY)
         & (daily["n_flagged"] == 0)

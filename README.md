@@ -168,7 +168,7 @@ The same run checks whether the forecast can still be trusted and writes the war
 
 | Check | Warns when |
 |---|---|
-| Freshness | yesterday has no counts at all (the city's daily update failed) |
+| Freshness | yesterday has no counts at the Warendorfer Straße (the city's daily update failed, or the job started before it) |
 | Incomplete days | 3 or more of the last 7 days are incomplete or faulty (dead channel) |
 | Inbound share | the median share of the last 14 days differs by more than 5 points from the 90 days before (new measurement jump) |
 | Bias | the forecasts of the last 28 days are on average more than 8 % too high or too low |
@@ -194,6 +194,12 @@ result. The entry covers all days up to the day of the check: the pages show the
 the result, and it opens no issue. The check keeps judging the days after it, so a new problem at the same
 site warns again. This works for all checks that judge days (incomplete days, inbound share, bias, low
 counts); missing data and failed downloads need a fix instead.
+
+Outages go into `KNOWN_FAULTS` and `SITE_FAULTS` after the fact, each with the day it was marked. Until
+then the model took their counts as normal, so the forecasts of the following weeks were off through no
+fault of the model. Both bias checks leave out a forecast that used such a day (lags, the 7-day mean or
+the same weekday up to 4 weeks earlier) if it was made before the day was marked; the accuracy on the
+pages keeps them, as the error of the forecasts as they were made.
 
 ## Web page
 

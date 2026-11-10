@@ -13,6 +13,13 @@ The checks look for problems the forecast itself does not notice:
 - a site counts far less than usual compared with other sites (maybe a
   partial outage)
 
+The bias checks leave out forecasts that used counts of days which were
+marked as faults only after the forecast was made (KNOWN_FAULTS,
+SITE_FAULTS): these forecasts could not be right, and that says nothing
+about the model. The
+accuracy shown on the pages keeps them: it is the error of the forecasts as
+they were made.
+
 The warnings are public (web page, app, AI assistant), so each has a text for
 visitors and, separately, what to do about it; only the issue of the daily
 job shows the second.
@@ -31,10 +38,11 @@ from dataclasses import dataclass, replace
 from datetime import date
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from radmuenster.data import DEFAULT_SITE
-from radmuenster.features import PERIOD_STARTS
+from radmuenster.features import INPUT_DAYS_BEFORE, PERIOD_STARTS
 from radmuenster.sites import low_count_days
 
 STATUS_FILE = Path("forecasts/status.json")
@@ -78,16 +86,7 @@ LOW_COUNT_RECENT_DAYS = 7
 # counts). Checks: incomplete_days, inbound_share and bias (Warendorfer
 # Straße, DEFAULT_SITE), site_bias and low_counts (any site). Missing counts
 # and failed downloads cannot be checked away: they need a fix, or pass.
-CHECKED_WARNINGS: list[tuple[str, str, str, str]] = [
-    (
-        "site_bias",
-        "300039331",
-        "2026-11-10",
-        "the forecasts were too low until the outage of 13 September to 20 October 2026 was marked "
-        "on 5 November 2026 (the model took its low counts as normal); the total counts since "
-        "21 October 2026 are plausible, the split by direction is not",
-    ),
-]
+CHECKED_WARNINGS: list[tuple[str, str, str, str]] = []
 CHECKS = {"incomplete_days", "inbound_share", "bias", "site_bias", "low_counts"}
 
 
@@ -164,9 +163,10 @@ def check_freshness(daily: pd.DataFrame, today: date) -> MonitoringWarning | Non
     yesterday = pd.Timestamp(today) - pd.Timedelta(days=1)
     if latest < yesterday:
         return MonitoringWarning(
-            f"No counts after {latest:%Y-%m-%d}: the forecast uses older counts.",
-            "The city's daily update may have failed, or the download got an old version "
-            "(compare with the city's repository).",
+            f"No counts at the Warendorfer Straße after {latest:%Y-%m-%d}: the forecast uses older counts.",
+            "The city's daily update may have failed, the download got an old version (compare with "
+            "the city's repository), or the job started too late, before the city's update of the "
+            "morning (compare the start of the run with the city's latest commit).",
         )
     return None
 
@@ -227,6 +227,26 @@ def check_inbound_share(
     return _review("inbound_share", DEFAULT_SITE, find, today, checked)
 
 
+def used_late_faults(forecasts: pd.DataFrame, daily: pd.DataFrame) -> np.ndarray:
+    """True for each forecast (columns forecast_date and made_on) that used
+    the count of a day which was marked as a known fault only after the
+    forecast was made (column marked_on of daily; all False without it).
+
+    The lists by hand (KNOWN_FAULTS, SITE_FAULTS) are filled in after the
+    fact: until then the model took the counts of those days as normal. A
+    forecast made on or after the day marked saw them as missing.
+    """
+    used = np.zeros(len(forecasts), dtype=bool)
+    if "marked_on" not in daily:
+        return used
+    made_on = forecasts["made_on"].to_numpy()
+    for k in INPUT_DAYS_BEFORE:
+        input_days = forecasts["forecast_date"] - pd.Timedelta(days=k)
+        # NaT (no known fault on that day) compares as False
+        used |= daily["marked_on"].reindex(input_days).to_numpy() > made_on
+    return used
+
+
 def evaluate_forecasts(log: pd.DataFrame, daily: pd.DataFrame) -> pd.DataFrame:
     """The forecast log with the actual count of each forecast day.
 
@@ -250,10 +270,12 @@ def check_bias(
     checked: list[tuple[str, str, str, str]] = CHECKED_WARNINGS,
 ) -> MonitoringWarning | None:
     """Warn if the forecasts of the last BIAS_WINDOW_DAYS are on average more
-    than MAX_BIAS too high or too low (at least MIN_EVALUATED_DAYS forecasts)."""
+    than MAX_BIAS too high or too low (at least MIN_EVALUATED_DAYS forecasts),
+    leaving out forecasts that used a fault marked later (used_late_faults)."""
     evaluated = evaluate_forecasts(log, daily)
     start = pd.Timestamp(today) - pd.Timedelta(days=BIAS_WINDOW_DAYS)
-    window = evaluated[evaluated["forecast_date"] >= start].set_index("forecast_date")
+    window = evaluated[evaluated["forecast_date"] >= start]
+    window = window[~used_late_faults(window, daily)].set_index("forecast_date")
 
     def find(after: pd.Timestamp | None) -> MonitoringWarning | None:
         recent = _after(window, after)
@@ -301,13 +323,14 @@ def check_site_bias(
     The bias is the sum of the errors over the sum of the actual counts, not
     the mean percentage error: a day on which a counter almost stopped (29
     trips at the Hammer Straße on 1 August 2026) would make that +24,000 %.
+    Forecasts that used a fault marked later are left out (used_late_faults).
     """
     evaluated = evaluate_site_forecasts(log, counts)
     start = pd.Timestamp(today) - pd.Timedelta(days=BIAS_WINDOW_DAYS)
     recent = evaluated[evaluated["forecast_date"] >= start]
     warnings = []
     for (site_id, name), days in recent.groupby(["site_id", "site_name"]):
-        days = days.set_index("forecast_date")
+        days = days[~used_late_faults(days, counts[site_id])].set_index("forecast_date")
 
         def find(after: pd.Timestamp | None, days=days, name=name) -> MonitoringWarning | None:
             judged = _after(days, after)

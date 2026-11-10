@@ -6,6 +6,7 @@ from radmuenster.sites import (
     LOW_COUNT_PEERS,
     SITES,
     SITES_BY_ID,
+    SITE_FAULTS,
     almost_zero_days,
     load_all_sites,
     low_count_days,
@@ -209,7 +210,7 @@ def test_almost_zero_days_compare_with_all_sites_even_with_peers(monkeypatch):
 
 def test_mark_site_faults_flags_the_days_with_their_reason():
     table = make_sites(n_sites=2, weeks=1)
-    marked = mark_site_faults(table, [("s1", "2025-08-05", "2025-08-06", "half the usual count")])
+    marked = mark_site_faults(table, [("s1", "2025-08-05", "2025-08-06", "2025-09-01", "half the usual count")])
     fault = marked["known_fault"]
     assert marked.loc[fault, ["site_id", "date"]].astype(str).values.tolist() == [
         ["s1", "2025-08-05"],
@@ -217,6 +218,15 @@ def test_mark_site_faults_flags_the_days_with_their_reason():
     ]
     assert (marked.loc[fault, "note"] == "half the usual count").all()
     assert (marked["ok"] == ~fault).all()
+    assert (marked.loc[fault, "marked_on"] == pd.Timestamp("2025-09-01")).all()
+    assert marked.loc[~fault, "marked_on"].isna().all()
+
+
+def test_site_faults_are_valid_ranges_marked_after_they_ended():
+    for site_id, first, last, marked_on, reason in SITE_FAULTS:
+        assert site_id in SITES_BY_ID
+        assert pd.Timestamp(first) <= pd.Timestamp(last) < pd.Timestamp(marked_on)
+        assert reason
 
 
 def test_almost_zero_days_flag_a_single_day_but_not_the_whole_city():

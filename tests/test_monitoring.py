@@ -9,6 +9,7 @@ from radmuenster.monitoring import (
     CHECKS,
     MonitoringWarning,
     check_site_bias,
+    used_late_faults,
     evaluate_site_forecasts,
     check_low_counts,
     check_bias,
@@ -33,7 +34,11 @@ def make_daily(start: str = "2025-11-01", end: str = "2026-10-11", share: float 
 
 
 def make_log(dates: pd.DatetimeIndex, prediction: float) -> pd.DataFrame:
-    return pd.DataFrame({"forecast_date": dates, "model": "lightgbm", "prediction": prediction})
+    """Forecasts made on the evening before each date."""
+    dates = pd.DatetimeIndex(dates)
+    return pd.DataFrame(
+        {"forecast_date": dates, "made_on": dates - pd.Timedelta(days=1), "model": "lightgbm", "prediction": prediction}
+    )
 
 
 def test_freshness_is_fine_with_yesterday():
@@ -42,8 +47,9 @@ def test_freshness_is_fine_with_yesterday():
 
 def test_freshness_warns_without_yesterday():
     warning = check_freshness(make_daily(end="2026-10-10"), TODAY)
-    assert "2026-10-10" in warning.text
+    assert "Warendorfer Straße after 2026-10-10" in warning.text
     assert "city's repository" in warning.action
+    assert "started too late" in warning.action
 
 
 def test_freshness_accepts_a_cut_short_day():
@@ -213,15 +219,53 @@ def test_checked_warnings_name_known_sites():
 
 
 def make_site_log(site_id: str, name: str, dates: pd.DatetimeIndex, prediction: float) -> pd.DataFrame:
+    dates = pd.DatetimeIndex(dates)
     return pd.DataFrame(
-        {"forecast_date": dates, "site_id": site_id, "site_name": name, "prediction": prediction}
+        {
+            "forecast_date": dates,
+            "made_on": dates - pd.Timedelta(days=1),
+            "site_id": site_id,
+            "site_name": name,
+            "prediction": prediction,
+        }
     )
 
 
-def make_counts(dates: pd.DatetimeIndex, count: float, incomplete: tuple[str, ...] = ()) -> pd.DataFrame:
-    counts = pd.DataFrame({"count": count, "complete": True}, index=dates)
+def make_counts(
+    dates: pd.DatetimeIndex,
+    count: float,
+    incomplete: tuple[str, ...] = (),
+    faults: pd.DatetimeIndex | None = None,
+    marked_on: str = "",
+) -> pd.DataFrame:
+    """Daily counts; the days of faults are incomplete, marked on marked_on,
+    as in site_counts."""
+    counts = pd.DataFrame({"count": count, "complete": True, "marked_on": pd.NaT}, index=dates)
     counts.loc[pd.DatetimeIndex(incomplete), "complete"] = False
+    if faults is not None:
+        counts.loc[faults, "complete"] = False
+        counts.loc[faults, "marked_on"] = pd.Timestamp(marked_on)
     return counts
+
+
+def test_used_late_faults_looks_at_the_input_days_made_before_the_mark():
+    dates = pd.date_range("2025-01-01", "2027-10-31", freq="D")
+    daily = make_counts(dates, 100.0, faults=pd.DatetimeIndex(["2026-10-01"]), marked_on="2026-11-15")
+    forecasts = pd.DataFrame(
+        [
+            ("2026-10-02", "2026-10-01", False),  # 1 day after: the day before is never an input
+            ("2026-10-03", "2026-10-02", True),  # 2 days: lag_2
+            ("2026-10-09", "2026-10-08", True),  # 8 days: in mean_7d
+            ("2026-10-10", "2026-10-09", False),  # 9 days: not an input
+            ("2026-10-29", "2026-10-28", True),  # 28 days: same weekday 4 weeks earlier
+            ("2026-10-29", "2026-11-15", False),  # made on the day marked: saw it as missing
+            ("2027-09-30", "2027-09-29", False),  # 364 days, but made after it was marked
+        ],
+        columns=["forecast_date", "made_on", "used"],
+    ).astype({"forecast_date": "datetime64[ns]", "made_on": "datetime64[ns]"})
+    assert used_late_faults(forecasts, daily).tolist() == forecasts["used"].tolist()
+    # Counts without the column have no known faults
+    assert not used_late_faults(forecasts, daily[["count", "complete"]]).any()
 
 
 def test_evaluate_site_forecasts_matches_site_and_day():
@@ -266,6 +310,44 @@ def test_site_bias_checked_by_hand_comes_back_after_two_weeks():
     assert warning_on(date(2026, 10, 30)).checked
     # From 14 forecasts after the check on (21 October to 3 November), the bias warns again
     assert not warning_on(date(2026, 11, 4)).checked
+
+
+def test_site_bias_leaves_out_forecasts_that_used_an_outage_marked_later():
+    # Like the Grevener Straße in October 2026: the counter counted too little
+    # until 20 October; forecasts that used those days were too low
+    today = date(2026, 11, 10)
+    outage = pd.date_range("2026-09-13", "2026-10-20", freq="D")
+    dates = pd.date_range("2026-08-01", "2026-11-09", freq="D")
+    after = dates[dates > outage[-1]]
+    # The forecasts of the first week after it got the low counts as lag_2 and in mean_7d
+    first_week = after[:8]
+    log = make_site_log("a", "A", after, 100.0)
+    log.loc[log["forecast_date"].isin(first_week), "prediction"] = 60.0
+    # Marked on 5 November: the forecasts made before that and using it are
+    # left out; 6 to 9 November are left, too few to judge
+    marked = make_counts(dates, 100.0, faults=outage, marked_on="2026-11-05")
+    assert check_site_bias(log, {"a": marked}, today, checked=[]) == []
+    # Before the outage was marked, the same forecasts warned
+    unmarked = make_counts(dates, 100.0)
+    [warning] = check_site_bias(log, {"a": unmarked}, today, checked=[])
+    assert "-16% off" in warning.text
+
+
+def test_bias_leaves_out_forecasts_that_used_a_fault_marked_later():
+    daily = make_daily()
+    daily["marked_on"] = pd.NaT
+    fault = slice("2026-09-20", "2026-09-30")
+    daily.loc[fault, "complete"] = False
+    # 17 forecasts of complete days, all 17 % too high
+    log = make_log(pd.date_range("2026-09-14", "2026-10-11", freq="D"), 7000.0)
+    # Marked before the forecasts: they saw the fault as missing and count
+    daily.loc[fault, "marked_on"] = pd.Timestamp("2026-09-01")
+    assert check_bias(log, daily, TODAY, checked=[]) is not None
+    # Marked today: the 11 forecasts after the fault used it; 6 are left, too few to judge
+    daily.loc[fault, "marked_on"] = pd.Timestamp("2026-10-12")
+    assert check_bias(log, daily, TODAY, checked=[]) is None
+    # The evaluation itself keeps them (the accuracy on the pages)
+    assert len(evaluate_forecasts(log, daily)) == 17
 
 
 def test_site_bias_is_fine_without_bias():

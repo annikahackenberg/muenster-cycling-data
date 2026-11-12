@@ -1,6 +1,10 @@
 {
-  "checked_on": "2026-11-10",
-  "warnings": [],
-  "actions": [],
+  "checked_on": "2026-11-13",
+  "warnings": [
+    "No counts at the Warendorfer Stra\u00dfe after 2026-11-11: the forecast uses older counts."
+  ],
+  "actions": [
+    "The city's daily update may have failed, the download got an old version (compare with the city's repository), or the job started too late, before the city's update of the morning (compare the start of the run with the city's latest commit)."
+  ],
   "checked_warnings": []
 }

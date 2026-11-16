@@ -117,7 +117,8 @@ def main_reasons(explanation: pd.Series, top: int = 3) -> list[tuple[str, float]
     explanation is one row of explain_lightgbm or explain_global. Compared on
     the log scale, so that halving (0.5) counts as much as doubling (2.0).
     """
-    factors = explanation.drop(["base", "prediction"]).astype(float)
+    # Only the groups: the row may carry more, e.g. the count or the site
+    factors = explanation[[group for group in GROUPS if group in explanation.index]].astype(float)
     factors = factors[(factors - 1).abs() >= MIN_CHANGE]
     order = np.log(factors).abs().sort_values(ascending=False).index[:top]
     return [(group, float(factors[group])) for group in order]

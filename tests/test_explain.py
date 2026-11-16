@@ -122,6 +122,13 @@ def test_main_reasons_orders_by_change_on_the_log_scale_and_drops_small_ones():
     assert main_reasons(explanation) == [("weather", 0.5), ("recent_level", 1.8)]
 
 
+def test_main_reasons_reads_only_the_groups():
+    explanation = make_explanation(weather=0.5)
+    explanation["actual"] = 3000.0
+    explanation["name"] = "Neutor"
+    assert main_reasons(explanation) == [("weather", 0.5)]
+
+
 def test_main_reasons_keeps_the_top_ones():
     explanation = make_explanation(weather=0.8, recent_level=1.1, weekday_season=1.3, holidays=0.95)
     assert [group for group, _ in main_reasons(explanation, top=2)] == ["weekday_season", "weather"]

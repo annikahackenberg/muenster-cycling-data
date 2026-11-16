@@ -62,7 +62,7 @@ def test_explanation_adds_up_to_the_prediction(own_model):
 def test_own_model_has_all_groups_but_site(own_model):
     model, factors, june = own_model
     explanation = explain_lightgbm(model, factors, june)
-    assert list(explanation.columns) == ["base", *(g for g in GROUPS if g != "site"), "prediction"]
+    assert list(explanation.columns) == ["base", *(g for g in GROUPS if g != "this_site"), "prediction"]
 
 
 def test_base_is_the_same_average_day_for_every_forecast(own_model):
@@ -95,7 +95,7 @@ def test_global_explanation_starts_from_the_usual_day_of_each_site(weather):
 
     explanation = explain_global(fitted, june)
     np.testing.assert_allclose(explanation["prediction"], fitted.predict(june))
-    assert "site" in explanation
+    assert "this_site" in explanation
     # Same pattern at both sites, so the base differs by their size
     base = explanation["base"].groupby(june["site"].to_numpy()).first()
     assert base["big"] / base["small"] == pytest.approx(10, rel=0.05)

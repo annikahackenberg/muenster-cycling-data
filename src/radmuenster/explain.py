@@ -27,15 +27,16 @@ from radmuenster.models import _lightgbm_inputs
 from radmuenster.multi_site import GlobalModel
 from radmuenster.weather import DAILY_VARIABLES
 
-# Feature groups in the order they are shown. "site" exists only in the
-# global model: what is specific to a site beyond its usual level.
+# Feature groups in the order they are shown. "this_site" exists only in the
+# global model: what is specific to a site beyond its usual level. Not called
+# "site", which is the column of the site id in the tables of the global model.
 GROUPS = {
     "weekday_season": ("weekday", "month", "season_sin", "season_cos"),
     "holidays": ("is_holiday", "is_bridge_day", "is_christmas", "is_rosenmontag", "special_day_factor"),
     "uni_school": ("is_lecture_period", "is_school_holiday"),
     "weather": (*DAILY_VARIABLES.values(), "snow_recent"),
     "recent_level": (*(f"lag_{k}" for k in LAGS), "mean_7d", "same_weekday_4w", "period"),
-    "site": ("site",),
+    "this_site": ("site",),
 }
 
 GROUP_LABELS = {
@@ -44,7 +45,7 @@ GROUP_LABELS = {
     "uni_school": "university and school holidays",
     "weather": "weather",
     "recent_level": "level of the last weeks",
-    "site": "this site",
+    "this_site": "this site",
 }
 
 FEATURE_GROUP = {feature: group for group, features in GROUPS.items() for feature in features}

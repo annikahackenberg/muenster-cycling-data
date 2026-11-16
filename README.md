@@ -182,7 +182,7 @@ dropped from about 0.50 to 0.37–0.43 for four weeks and then recovered. The in
 than a change in traffic, so these days are now marked as a known fault.
 
 A GitHub Actions workflow ([.github/workflows/daily-forecast.yml](.github/workflows/daily-forecast.yml))
-runs every evening at 18:00 UTC, commits the forecast to `main` and opens an issue labelled `monitoring`
+runs every day at 15:17 UTC (GitHub often starts it hours late), commits the forecast to `main` and opens an issue labelled `monitoring`
 when there are warnings.
 
 The warnings are public: the web page, the app and the AI assistant show them. So each warning has a text

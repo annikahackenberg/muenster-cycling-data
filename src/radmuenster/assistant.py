@@ -37,10 +37,10 @@ MAX_QUESTION_CHARS = 500
 MAX_QUESTIONS_PER_CONVERSATION = 10
 MAX_QUESTIONS_PER_DAY = 100
 
-# When the published data and the forecast are usually updated: the daily job
-# is scheduled for 18:00 UTC (.github/workflows/daily-forecast.yml), starts
-# about 10 minutes late and runs a few minutes
-DAILY_UPDATE_UTC = time(18, 15)
+# When the published data and the forecast are updated at the earliest: the
+# daily job is scheduled for 15:17 UTC (.github/workflows/daily-forecast.yml)
+# and runs a few minutes, but often starts hours late
+DAILY_UPDATE_UTC = time(15, 30)
 
 SYSTEM_PROMPT = f"""\
 You answer questions about bicycle traffic in Münster, Germany, from the open \
@@ -128,9 +128,9 @@ def update_note(today: date) -> str:
     convert time zones, and the hour changes with daylight saving time."""
     update = datetime.combine(today, DAILY_UPDATE_UTC, tzinfo=UTC).astimezone(TIMEZONE)
     return (
-        f"The counts, the weather and the forecast are updated once a day, in the evening at "
-        f"about {update:%H:%M} Münster time. Until then the latest counts are usually for the "
-        f"day before yesterday and the latest forecast is for today; after the update, the "
+        f"The counts, the weather and the forecast are updated once a day, not before "
+        f"{update:%H:%M} Münster time and often a few hours later. Until then the latest "
+        f"counts are usually for the day before yesterday and the latest forecast is for today; after the update, the "
         f"forecast is for tomorrow."
     )
 

@@ -4,6 +4,8 @@ from datetime import date
 import pytest
 import requests
 
+from radmuenster import weather as weather_module
+
 from radmuenster.weather import (
     DAILY_VARIABLES,
     FORECAST_URL,
@@ -46,11 +48,36 @@ class FakeWeatherServer:
         return self.responses.get(year, FakeResponse(500))
 
 
+@pytest.fixture(autouse=True)
+def no_waiting(monkeypatch):
+    """Record the waits between attempts instead of sleeping."""
+    waits = []
+    monkeypatch.setattr(weather_module.time, "sleep", waits.append)
+    return waits
+
+
 @pytest.fixture
 def server(monkeypatch):
     fake = FakeWeatherServer()
     monkeypatch.setattr(requests, "get", fake.get)
     return fake
+
+
+def answers(monkeypatch, *outcomes):
+    """Fake requests.get that gives the outcomes in turn: a FakeResponse or an
+    exception to raise. Returns the list of calls."""
+    calls = []
+    remaining = list(outcomes)
+
+    def fake_get(url: str, params: dict, timeout: float) -> FakeResponse:
+        calls.append(url)
+        outcome = remaining.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    monkeypatch.setattr(requests, "get", fake_get)
+    return calls
 
 
 def test_parse_renames_columns_and_converts_sunshine():
@@ -76,9 +103,58 @@ def test_current_year_is_not_cached(server, tmp_path):
     assert not (tmp_path / f"{year}.json").exists()
 
 
-def test_server_error_raises(server, tmp_path):
+def test_server_error_raises_after_all_attempts(server, tmp_path, no_waiting):
     with pytest.raises(requests.HTTPError):
         download_weather_year(2023, tmp_path)
+    assert server.calls == [2023] * (len(weather_module.RETRY_WAITS) + 1)
+    assert no_waiting == list(weather_module.RETRY_WAITS)
+
+
+def test_server_error_and_timeout_are_tried_again(monkeypatch, no_waiting):
+    ok = FakeResponse(200, make_json(["2026-11-13", "2026-11-14"]))
+    calls = answers(monkeypatch, FakeResponse(500), requests.ReadTimeout(), ok)
+    weather = load_weather_forecast()
+    assert len(calls) == 3
+    assert no_waiting == list(weather_module.RETRY_WAITS)
+    assert len(weather) == 2
+
+
+def test_lost_connection_is_tried_again(monkeypatch):
+    ok = FakeResponse(200, make_json(["2026-11-13"]))
+    calls = answers(monkeypatch, requests.ConnectionError(), ok)
+    load_weather_forecast(days=1)
+    assert len(calls) == 2
+
+
+def test_timeout_of_the_last_attempt_is_raised(monkeypatch):
+    attempts = len(weather_module.RETRY_WAITS) + 1
+    answers(monkeypatch, *[requests.ReadTimeout() for _ in range(attempts)])
+    with pytest.raises(requests.ReadTimeout):
+        load_weather_forecast()
+
+
+def test_broken_download_and_too_many_requests_are_tried_again(monkeypatch):
+    ok = FakeResponse(200, make_json(["2026-11-13"]))
+    broken = requests.exceptions.ChunkedEncodingError("Connection broken: IncompleteRead")
+    calls = answers(monkeypatch, broken, FakeResponse(429), ok)
+    load_weather_forecast(days=1)
+    assert len(calls) == 3
+
+
+def test_archive_year_is_cached_after_a_new_attempt(monkeypatch, tmp_path):
+    ok = FakeResponse(200, make_json(["2023-01-01"]))
+    calls = answers(monkeypatch, FakeResponse(503), ok)
+    download_weather_year(2023, tmp_path)
+    assert len(calls) == 2
+    assert json.loads((tmp_path / "2023.json").read_text())["daily"]["time"] == ["2023-01-01"]
+
+
+def test_client_error_is_not_tried_again(monkeypatch, no_waiting):
+    calls = answers(monkeypatch, FakeResponse(400))
+    with pytest.raises(requests.HTTPError):
+        load_weather_forecast()
+    assert len(calls) == 1
+    assert no_waiting == []
 
 
 def test_load_weather_spans_years_and_cuts_to_range(server, tmp_path):

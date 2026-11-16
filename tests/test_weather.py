@@ -133,6 +133,22 @@ def test_timeout_of_the_last_attempt_is_raised(monkeypatch):
         load_weather_forecast()
 
 
+def test_broken_download_and_too_many_requests_are_tried_again(monkeypatch):
+    ok = FakeResponse(200, make_json(["2026-11-13"]))
+    broken = requests.exceptions.ChunkedEncodingError("Connection broken: IncompleteRead")
+    calls = answers(monkeypatch, broken, FakeResponse(429), ok)
+    load_weather_forecast(days=1)
+    assert len(calls) == 3
+
+
+def test_archive_year_is_cached_after_a_new_attempt(monkeypatch, tmp_path):
+    ok = FakeResponse(200, make_json(["2023-01-01"]))
+    calls = answers(monkeypatch, FakeResponse(503), ok)
+    download_weather_year(2023, tmp_path)
+    assert len(calls) == 2
+    assert json.loads((tmp_path / "2023.json").read_text())["daily"]["time"] == ["2023-01-01"]
+
+
 def test_client_error_is_not_tried_again(monkeypatch, no_waiting):
     calls = answers(monkeypatch, FakeResponse(400))
     with pytest.raises(requests.HTTPError):

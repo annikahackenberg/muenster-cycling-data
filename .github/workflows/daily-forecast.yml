@@ -4,11 +4,12 @@ on:
   schedule:
     # Cron runs on UTC: 15:17 UTC is 17:17 in summer and 16:17 in winter in
     # Münster. Scheduled runs start late when GitHub is busy, in November 2026
-    # often 4-7 hours. A run after midnight in Münster (23:00 UTC in winter)
-    # forecasts the day after tomorrow without yesterday's counts, which the
-    # city publishes in the morning, so this leaves about 7 hours. Not on the
-    # full hour, where most scheduled workflows start. The city's counts of
-    # yesterday are there from about 05:20, so starting earlier loses nothing.
+    # often 4-7 hours. A run after midnight in Münster (22:00 UTC in summer,
+    # 23:00 in winter) forecasts the day after tomorrow without yesterday's
+    # counts, which the city publishes in the morning, so this leaves about
+    # 6.7 hours in summer and 7.7 in winter. Not on the full hour, where most
+    # scheduled workflows start. The trade-off: an early run may get tomorrow's
+    # weather from an older model run than an evening run would.
     - cron: "17 15 * * *"
   workflow_dispatch: # manual run from the Actions tab
 

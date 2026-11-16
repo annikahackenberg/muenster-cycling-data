@@ -8,12 +8,15 @@ License: CC BY 4.0
 from __future__ import annotations
 
 import json
+import logging
 import time
 from datetime import date
 from pathlib import Path
 
 import pandas as pd
 import requests
+
+logger = logging.getLogger(__name__)
 
 ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
 FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
@@ -22,6 +25,10 @@ FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 # does not answer in time: both happened in the daily job (November 2026) and
 # went away by themselves, but one failed request stopped the whole run
 RETRY_WAITS = (10, 30)
+
+# Answers worth a new attempt: server errors, and 429 "too many requests"
+# (the runners of GitHub Actions share IP addresses)
+RETRY_STATUS = {429, 500, 502, 503, 504}
 
 # Warendorfer Straße counting site
 LATITUDE = 51.963
@@ -40,19 +47,24 @@ DAILY_VARIABLES = {
 
 
 def _get(url: str, params: dict, timeout: float) -> requests.Response:
-    """requests.get with new attempts after server errors (5xx), timeouts and
-    lost connections. Client errors (4xx, e.g. a wrong parameter) would fail
-    again, so they are raised at once; so are the errors of the last attempt."""
+    """requests.get with new attempts after server errors (RETRY_STATUS),
+    timeouts and lost connections, also while the answer is downloaded. Other
+    client errors (4xx, e.g. a wrong parameter) would fail again, so they are
+    raised at once; so are the errors of the last attempt."""
     for wait in RETRY_WAITS:
         try:
             resp = requests.get(url, params=params, timeout=timeout)
-        except (requests.Timeout, requests.ConnectionError) as error:
+        except (
+            requests.Timeout,
+            requests.ConnectionError,
+            requests.exceptions.ChunkedEncodingError,
+        ) as error:
             problem = type(error).__name__
         else:
-            if resp.status_code < 500:
+            if resp.status_code not in RETRY_STATUS:
                 break
             problem = f"HTTP {resp.status_code}"
-        print(f"Open-Meteo: {problem} for {url}, new attempt in {wait} s")
+        logger.warning("Open-Meteo: %s for %s, new attempt in %s s", problem, url, wait)
         time.sleep(wait)
     else:
         resp = requests.get(url, params=params, timeout=timeout)

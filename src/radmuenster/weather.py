@@ -8,6 +8,7 @@ License: CC BY 4.0
 from __future__ import annotations
 
 import json
+import time
 from datetime import date
 from pathlib import Path
 
@@ -16,6 +17,11 @@ import requests
 
 ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
 FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
+
+# Seconds to wait before each new attempt when Open-Meteo has a server error or
+# does not answer in time: both happened in the daily job (November 2026) and
+# went away by themselves, but one failed request stopped the whole run
+RETRY_WAITS = (10, 30)
 
 # Warendorfer Straße counting site
 LATITUDE = 51.963
@@ -31,6 +37,27 @@ DAILY_VARIABLES = {
     "sunshine_duration": "sunshine",
     "wind_speed_10m_max": "wind_max",
 }
+
+
+def _get(url: str, params: dict, timeout: float) -> requests.Response:
+    """requests.get with new attempts after server errors (5xx), timeouts and
+    lost connections. Client errors (4xx, e.g. a wrong parameter) would fail
+    again, so they are raised at once; so are the errors of the last attempt."""
+    for wait in RETRY_WAITS:
+        try:
+            resp = requests.get(url, params=params, timeout=timeout)
+        except (requests.Timeout, requests.ConnectionError) as error:
+            problem = type(error).__name__
+        else:
+            if resp.status_code < 500:
+                break
+            problem = f"HTTP {resp.status_code}"
+        print(f"Open-Meteo: {problem} for {url}, new attempt in {wait} s")
+        time.sleep(wait)
+    else:
+        resp = requests.get(url, params=params, timeout=timeout)
+    resp.raise_for_status()
+    return resp
 
 
 def download_weather_year(year: int, cache_dir: Path) -> str:
@@ -51,8 +78,7 @@ def download_weather_year(year: int, cache_dir: Path) -> str:
         "daily": ",".join(DAILY_VARIABLES),
         "timezone": "Europe/Berlin",
     }
-    resp = requests.get(ARCHIVE_URL, params=params, timeout=30)
-    resp.raise_for_status()
+    resp = _get(ARCHIVE_URL, params, timeout=30)
 
     if year < date.today().year:
         cache_file.parent.mkdir(parents=True, exist_ok=True)
@@ -101,8 +127,7 @@ def load_weather_forecast(days: int = 2) -> pd.DataFrame:
         "daily": ",".join(DAILY_VARIABLES),
         "timezone": "Europe/Berlin",
     }
-    resp = requests.get(FORECAST_URL, params=params, timeout=30)
-    resp.raise_for_status()
+    resp = _get(FORECAST_URL, params, timeout=30)
     return parse_weather_json(resp.text)
 
 
@@ -155,8 +180,7 @@ def load_weather_previous_day(start: date, end: date) -> pd.DataFrame:
         "hourly": ",".join(PREVIOUS_DAY_VARIABLES),
         "timezone": "Europe/Berlin",
     }
-    resp = requests.get(PREVIOUS_RUNS_URL, params=params, timeout=60)
-    resp.raise_for_status()
+    resp = _get(PREVIOUS_RUNS_URL, params, timeout=60)
     hourly = json.loads(resp.text)["hourly"]
     table = pd.DataFrame({ours: hourly[theirs] for theirs, ours in PREVIOUS_DAY_VARIABLES.items()})
     table.index = pd.DatetimeIndex(hourly["time"])

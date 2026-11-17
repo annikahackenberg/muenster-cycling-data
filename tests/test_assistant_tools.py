@@ -111,10 +111,10 @@ def make_explanations() -> pd.DataFrame:
     global model at the Neutor. Base times factors gives the forecast."""
     nan = float("nan")
     rows = [
-        (SITE_IDS["Warendorfer Straße"], "lightgbm", 5000.0, 1.2, 1.0, 1.0, 1.1, 1.0, nan),
-        (SITE_IDS["Neutor"], "global_lightgbm", 10000.0, 1.0, 1.0, 1.0, 0.8, 1.1, 1.0),
+        (SITE_IDS["Warendorfer Straße"], "lightgbm", 6600, 5000.0, 1.2, 1.0, 1.0, 1.1, 1.0, nan),
+        (SITE_IDS["Neutor"], "global_lightgbm", 8800, 10000.0, 1.0, 1.0, 1.0, 0.8, 1.1, 1.0),
     ]
-    columns = ["site_id", "model", "base", "weekday_season", "holidays", "uni_school", "weather",
+    columns = ["site_id", "model", "prediction", "base", "weekday_season", "holidays", "uni_school", "weather",
                "recent_level", "this_site"]
     table = pd.DataFrame(rows, columns=columns)
     table.insert(0, "forecast_date", pd.Timestamp("2026-10-14"))
@@ -201,7 +201,7 @@ def test_get_forecast_at_another_site_comes_from_the_global_model(data):
 def test_explain_forecast_of_the_own_model(data):
     result = explain_forecast(data, "Warendorfer Straße")
     assert (result["forecast_date"], result["predicted_trips"], result["base_trips"]) == ("2026-10-14", 6600, 5000)
-    assert result["compared_with"] == "an average day"
+    assert result["compared_with"] == "the model's starting point"
     # Every group of the own model, but no factor for the site
     assert result["change_percent"] == {
         "weekday and season": 20.0,
@@ -211,7 +211,7 @@ def test_explain_forecast_of_the_own_model(data):
         "level of the last weeks": 0.0,
     }
     assert result["main_reasons"] == (
-        "Compared with an average day (5,000 trips): weekday and season +20 %, weather +10 %."
+        "Compared with the model's starting point (5,000 trips): weekday and season +20 %, weather +10 %."
     )
     assert "not a measured cause" in result["meaning"]
 

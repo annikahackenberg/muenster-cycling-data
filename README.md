@@ -150,9 +150,11 @@ forecast than winter and the holidays in the cross-validation.
 ### Explaining a forecast
 
 Why is tomorrow's forecast what it is? LightGBM computes **SHAP values** itself (TreeSHAP,
-`predict(..., pred_contrib=True)`): one contribution per feature plus a base value, the average forecast over
+`predict(..., pred_contrib=True)`): one contribution per feature plus a base value, the mean forecast over
 the training data, which add up exactly to the forecast. The models forecast log(count), so on the count the
-contributions become factors: forecast = base × one factor per input. [explain.py](src/radmuenster/explain.py)
+contributions become factors: forecast = base × one factor per input. The base is the mean of log(count)
+turned back into trips, a geometric mean below the average day (about 5,560 against 6,080 trips at the
+Warendorfer Straße), so the pages call it the model's starting point. [explain.py](src/radmuenster/explain.py)
 sums them into five groups (weekday and season, holidays and bridge days, university and school holidays,
 weather, level of the last weeks), plus "this site" in the global model, whose base is a usual day at the site
 (details: [notebooks/04_explanations.ipynb](notebooks/04_explanations.ipynb)).

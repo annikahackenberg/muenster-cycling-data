@@ -31,7 +31,7 @@ from radmuenster.dashboard import (
     latest_forecast,
     sites_overview,
 )
-from radmuenster.explain import GROUP_LABELS, GROUPS, reasons_text, reference_day
+from radmuenster.explain import GROUP_LABELS, group_factors, reasons_text, reference_day
 from radmuenster.explore import RESOLUTIONS, aggregate, flagged_periods, ranking, select
 from radmuenster.findings import key_findings, site_findings, site_profiles
 from radmuenster.forecast import GLOBAL_MODEL_NAME, MODEL_NAME
@@ -290,7 +290,8 @@ def get_forecast(data: AssistantData, site: str = FORECAST_SITE) -> dict:
 
 EXPLANATION_MEANING = (
     "How the model weighed its inputs for this forecast (SHAP values), not a measured cause. "
-    "The factors multiply: base_trips times all factors gives the forecast."
+    "The factors multiply: base_trips (the model's starting point, or a usual day at the site) "
+    "times all factors gives the forecast."
 )
 
 
@@ -312,13 +313,13 @@ def explain_forecast(data: AssistantData, site: str = FORECAST_SITE) -> dict:
     if explanation is None:
         result["note"] = "No explanation for this forecast: it was made before explanations were saved."
         return result
-    groups = [group for group in GROUPS if pd.notna(explanation.get(group))]
     result.update(
         {
             "compared_with": reference_day(explanation),
             "base_trips": _number(explanation["base"]),
             "change_percent": {
-                GROUP_LABELS[group]: _number((explanation[group] - 1) * 100, 1) for group in groups
+                GROUP_LABELS[group]: _number((factor - 1) * 100, 1)
+                for group, factor in group_factors(explanation).items()
             },
             "main_reasons": reasons_text(explanation),
             "meaning": EXPLANATION_MEANING,

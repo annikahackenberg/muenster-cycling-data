@@ -138,7 +138,7 @@ def test_main_reasons_keeps_the_top_ones():
 def test_reasons_text_names_the_reference_and_the_changes():
     explanation = make_explanation(weather=0.78, recent_level=1.25, uni_school=1.01)
     assert reasons_text(explanation) == (
-        "Compared with an average day (5,000 trips): weather -22 %, level of the last weeks +25 %."
+        "Compared with the model's starting point (5,000 trips): weather -22 %, level of the last weeks +25 %."
     )
 
 
@@ -146,7 +146,7 @@ def test_reasons_text_without_large_changes():
     text = reasons_text(make_explanation(weather=1.01), reference="a usual day at this site")
     assert text == (
         "Compared with a usual day at this site (5,000 trips): "
-        "no input changes the forecast by more than 3%."
+        "no input changes the forecast by 3 % or more."
     )
 
 
@@ -156,6 +156,6 @@ def test_reasons_text_starts_from_a_usual_day_at_the_site_for_the_global_model()
     # Read back from the explanation file, the own model has no factor for the site
     own_row["this_site"] = float("nan")
     assert reference_day(global_row) == "a usual day at this site"
-    assert reference_day(own_row) == "an average day"
-    assert reasons_text(own_row).startswith("Compared with an average day")
+    assert reference_day(own_row) == "the model's starting point"
+    assert reasons_text(own_row).startswith("Compared with the model's starting point")
     assert main_reasons(own_row) == [("weather", 0.5)]

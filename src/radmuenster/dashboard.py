@@ -14,7 +14,7 @@ import pandas as pd
 from holidays import Germany
 
 from radmuenster.data import DEFAULT_SITE
-from radmuenster.explain import GROUP_LABELS, GROUPS
+from radmuenster.explain import GROUP_LABELS, group_factors
 from radmuenster.explore import PALETTE
 from radmuenster.features import SUBDIVISION, academic_features, calendar_features, lag_features
 from radmuenster.monitoring import evaluate_forecasts, evaluate_site_forecasts
@@ -72,10 +72,13 @@ HOW_IT_WORKS = (
     ),
     (
         "Explanation",
-        "each forecast is taken apart into a base and one factor per group of inputs (weekday and "
-        "season, holidays, university and school holidays, weather, level of the last weeks) with SHAP "
-        "values, which LightGBM computes itself. They show how the model weighed its inputs, not "
-        "what causes the traffic.",
+        "each forecast is taken apart into a starting point and one factor per group of inputs "
+        "(weekday and season, holidays, university and school holidays, weather, level of the last "
+        "weeks and, in the model of all sites, this site: what is specific to it) with SHAP values, "
+        "which LightGBM computes itself. The starting point is a typical day over all training years, "
+        "averaged on the log scale and so a little below the average day; at the other sites it is a "
+        "usual day at the site. The factors show how the model weighed its inputs, not what causes "
+        "the traffic.",
     ),
     (
         "Automation",
@@ -89,8 +92,8 @@ HOW_IT_WORKS = (
 CHECKED_HEADING = "Checked by hand, nothing to do:"
 
 EXPLANATION_NOTE = (
-    "How the model weighed its inputs (SHAP values), not a measured cause. The base times all "
-    "factors gives the forecast."
+    "How the model weighed its inputs (SHAP values), not a measured cause. The starting point "
+    "times all factors gives the forecast."
 )
 
 # Below the waterfall only: the factors multiply, so the same factor moves more
@@ -101,51 +104,37 @@ EXPLANATION_CHART_NOTE = (
 )
 
 
-# Rounding the factors in EXPLANATION_FILE to four digits moves base times
-# factors by at most about 0.2 % from the forecast
-MAX_EXPLANATION_GAP = 0.01
-
-
 def forecast_explanation(
     explanations: pd.DataFrame, forecast: pd.Series, site_id: str, model: str
 ) -> pd.Series | None:
     """The explanation (EXPLANATION_FILE) of forecast at site_id by model;
     None if there is none, e.g. for forecasts made before explanations.
 
-    Also None if the explanation does not add up to the forecast: then the
-    two come from different runs (e.g. a forecast log from main and a local
-    explanation file) and the explanation would describe another number.
+    The prediction has to match too: an explanation of another forecast for
+    the same day (another run, e.g. a local one, while the log comes from
+    main) would describe a different number.
     """
-    if explanations.empty:
+    if explanations.empty or "prediction" not in explanations:
         return None
     rows = explanations[
         (explanations["forecast_date"] == forecast["forecast_date"])
         & (explanations["site_id"] == site_id)
         & (explanations["model"] == model)
+        & (explanations["prediction"] == forecast["prediction"])
     ]
-    if rows.empty:
-        return None
-    explanation = rows.iloc[-1]
-    factors = explanation[[group for group in GROUPS if group in explanation.index]].astype(float).dropna()
-    explained = explanation["base"] * factors.prod()
-    if abs(explained / forecast["prediction"] - 1) > MAX_EXPLANATION_GAP:
-        return None
-    return explanation
+    return None if rows.empty else rows.iloc[-1]
 
 
 def explanation_chart(explanation: pd.Series, theme: str) -> alt.LayerChart:
-    """A waterfall from the base over each group of inputs to the forecast,
+    """A waterfall from the starting point over each group of inputs to the forecast,
     as horizontal bars, so that the labels fit on a phone.
 
     explanation is one row of EXPLANATION_FILE, theme "light" or "dark".
     """
     rows, level = [], float(explanation["base"])
-    rows.append(("Base", 0.0, level, "base", f"{level:,.0f}"))
-    for group in GROUPS:
-        factor = explanation.get(group)
-        if factor is None or pd.isna(factor):
-            continue
-        new = level * float(factor)
+    rows.append(("Starting point", 0.0, level, "base", f"{level:,.0f}"))
+    for group, factor in group_factors(explanation).items():
+        new = level * factor
         rows.append((GROUP_LABELS[group].capitalize(), level, new, "up" if new >= level else "down",
                      f"{(factor - 1) * 100:+.0f} %"))
         level = new

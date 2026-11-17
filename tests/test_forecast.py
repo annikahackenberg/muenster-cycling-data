@@ -82,9 +82,27 @@ def test_forecast_day_explains_its_forecast(daily):
     assert (row["site_id"], row["model"]) == ("100034983", "lightgbm")
     # The own model has no site feature
     groups = [group for group in GROUPS if group != "this_site"]
-    assert list(explanation.columns) == [*FORECAST_KEY[:1], "made_on", *FORECAST_KEY[1:], "base", *groups]
+    assert list(explanation.columns) == [
+        *FORECAST_KEY[:1], "made_on", *FORECAST_KEY[1:], "prediction", "base", *groups
+    ]
+    # The logged prediction, to match the explanation to its forecast
+    assert row["prediction"] == record.iloc[0]["prediction"]
     # Base times the factors gives the forecast (factors rounded to 4 decimals)
     assert row["base"] * row[groups].prod() == pytest.approx(record.iloc[0]["prediction"], rel=1e-3)
+
+
+def test_failed_explanation_keeps_the_forecast(daily, monkeypatch):
+    def broken(*args):
+        raise ValueError("Features without a group in GROUPS: ['new_feature']")
+
+    monkeypatch.setattr("radmuenster.forecast.explain_lightgbm", broken)
+    monkeypatch.setattr("radmuenster.forecast.explain_global", broken)
+    weather = make_weather("2025-01-01", "2026-10-13")
+    record, explanation = forecast_day(daily, weather, date(2026, 10, 13), made_on=date(2026, 10, 12))
+    assert len(record) == 1 and explanation is None
+    counts = {"100034980": daily, "100034981": daily.assign(count=daily["count"] / 10)}
+    record, explanation = forecast_sites(counts, weather, date(2026, 10, 13), made_on=date(2026, 10, 12))
+    assert len(record) == 2 and explanation is None
 
 
 def test_forecast_sites_explains_every_forecast(daily):
@@ -92,6 +110,7 @@ def test_forecast_sites_explains_every_forecast(daily):
     counts = {"100034980": daily, "100034981": daily.assign(count=daily["count"] / 10)}
     record, explanation = forecast_sites(counts, weather, date(2026, 10, 13), made_on=date(2026, 10, 12))
     assert explanation["site_id"].tolist() == record["site_id"].tolist()
+    assert explanation["prediction"].tolist() == record["prediction"].tolist()
     assert (explanation["model"] == "global_lightgbm").all()
     factors = explanation[list(GROUPS)].prod(axis=1)
     assert (explanation["base"] * factors).tolist() == pytest.approx(record["prediction"].tolist(), rel=1e-3)

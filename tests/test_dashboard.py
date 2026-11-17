@@ -191,6 +191,8 @@ def make_explanations() -> pd.DataFrame:
             "made_on": pd.Timestamp("2026-11-17"),
             "site_id": "100034983",
             "model": ["lightgbm", "global_lightgbm"],
+            # Base times factors: 5000 * 1.2 * 0.5 and 6000 * 1.1 * 0.6 * 1.05, rounded
+            "prediction": [3000, 4158],
             "base": [5000.0, 6000.0],
             "weekday_season": [1.2, 1.1],
             "holidays": [1.0, 1.0],
@@ -208,18 +210,21 @@ def tomorrow(prediction: float) -> pd.Series:
 
 def test_forecast_explanation_finds_the_row_of_the_forecast_and_model():
     explanations = make_explanations()
-    # Base times factors: 5000 * 1.2 * 0.5 and 6000 * 1.1 * 0.6 * 1.05
     own = forecast_explanation(explanations, tomorrow(3000), "100034983", "lightgbm")
     assert own["base"] == 5000.0
     other = forecast_explanation(explanations, tomorrow(4158), "100034983", "global_lightgbm")
     assert other["base"] == 6000.0
 
 
-def test_forecast_explanation_is_none_if_it_explains_another_number():
+def test_forecast_explanation_is_none_for_another_forecast_of_the_day():
     # E.g. the forecast log from main and the explanation of a local run
-    explanations = make_explanations()
-    assert forecast_explanation(explanations, tomorrow(3020), "100034983", "lightgbm") is not None
-    assert forecast_explanation(explanations, tomorrow(3100), "100034983", "lightgbm") is None
+    assert forecast_explanation(make_explanations(), tomorrow(3001), "100034983", "lightgbm") is None
+
+
+def test_forecast_explanation_is_none_for_a_file_without_predictions():
+    # An explanation file from before the prediction was saved with it
+    older = make_explanations().drop(columns="prediction")
+    assert forecast_explanation(older, tomorrow(3000), "100034983", "lightgbm") is None
 
 
 def test_forecast_explanation_is_none_without_a_matching_row():
@@ -233,7 +238,7 @@ def test_explanation_chart_runs_from_the_base_to_the_forecast():
     data = explanation_chart(own, "light").data
     # this_site is NaN for the own model and left out
     assert data["step"].tolist() == [
-        "Base", "Weekday and season", "Holidays and bridge days", "University and school holidays",
+        "Starting point", "Weekday and season", "Holidays and bridge days", "University and school holidays",
         "Weather", "Level of the last weeks", "Forecast",
     ]
     assert data["end"].iloc[-1] == pytest.approx(5000 * 1.2 * 0.5)

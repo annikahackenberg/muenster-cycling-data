@@ -2,11 +2,15 @@
 
 LightGBM computes SHAP values itself (TreeSHAP, predict with
 pred_contrib=True): for each forecast, one contribution per feature plus a
-base value, the average prediction over the training data. They add up
-exactly to the prediction. The models predict log(count), so the
-contributions add up on the log scale and become factors on the count:
+base value, the mean prediction over the training data. They add up exactly
+to the prediction. The models predict log(count), so the contributions add
+up on the log scale and become factors on the count:
 
     prediction = base * factor of feature 1 * factor of feature 2 * ...
+
+The base is the mean of log(count), turned back into trips: a geometric
+mean, below the average day (Warendorfer Straße about 5,560 against 6,080).
+So the pages call it the model's starting point, not an average day.
 
 The contributions explain how the model weighed its inputs, not what causes
 the traffic. Correlated features share their effect in a way that depends on
@@ -93,8 +97,9 @@ def explain_lightgbm(model: LGBMRegressor, factors: pd.Series, table: pd.DataFra
     """Explanation of the forecasts of a model from models.fit_lightgbm for
     the rows of table (output of build_features).
 
-    Columns: base (average prediction over the training data, in trips), one
-    factor per group, prediction (equal to predict_lightgbm).
+    Columns: base (the model's starting point, exp of the mean log prediction
+    over the training data, in trips), one factor per group, prediction (equal
+    to predict_lightgbm).
     """
     return _as_factors(grouped_contributions(model, _lightgbm_inputs(table, factors)))
 
@@ -103,11 +108,22 @@ def explain_global(fitted: GlobalModel, table: pd.DataFrame) -> pd.DataFrame:
     """Like explain_lightgbm for the global model of all sites.
 
     The global model works on counts divided by the median of each site, so
-    the base is an average day relative to the site's usual level, times that
-    level: the explanation starts from a usual day at this site.
+    the base is the starting point relative to the site's usual level (over
+    all sites), times the median of the site: the explanation starts from a
+    usual day at this site.
     """
     scale = table["site"].map(fitted.scale).to_numpy()
     return _as_factors(grouped_contributions(fitted.model, fitted.inputs(table)), scale)
+
+
+def group_factors(explanation: pd.Series) -> pd.Series:
+    """The factor of each group in explanation, in the order of GROUPS.
+
+    explanation is one row of explain_lightgbm, explain_global or
+    EXPLANATION_FILE. It may carry more (the count, the site); a row of the
+    own model read from EXPLANATION_FILE has this_site as NaN, which is left out.
+    """
+    return explanation[[group for group in GROUPS if group in explanation.index]].astype(float).dropna()
 
 
 def main_reasons(explanation: pd.Series, top: int = 3) -> list[tuple[str, float]]:
@@ -117,9 +133,7 @@ def main_reasons(explanation: pd.Series, top: int = 3) -> list[tuple[str, float]
     explanation is one row of explain_lightgbm or explain_global. Compared on
     the log scale, so that halving (0.5) counts as much as doubling (2.0).
     """
-    # Only the groups: the row may carry more, e.g. the count or the site. A
-    # row of the own model read from EXPLANATION_FILE has no this_site (NaN)
-    factors = explanation[[group for group in GROUPS if group in explanation.index]].astype(float).dropna()
+    factors = group_factors(explanation)
     factors = factors[(factors - 1).abs() >= MIN_CHANGE]
     order = np.log(factors).abs().sort_values(ascending=False).index[:top]
     return [(group, float(factors[group])) for group in order]
@@ -127,15 +141,17 @@ def main_reasons(explanation: pd.Series, top: int = 3) -> list[tuple[str, float]
 
 def reference_day(explanation: pd.Series) -> str:
     """What the base of explanation stands for: the global model (with a
-    factor for this_site) starts from a usual day at the site."""
+    factor for this_site) starts from a usual day at the site, the own model
+    from its starting point (see the module docstring)."""
     if pd.notna(explanation.get("this_site")):
         return "a usual day at this site"
-    return "an average day"
+    return "the model's starting point"
 
 
 def reasons_text(explanation: pd.Series, reference: str | None = None) -> str:
-    """One sentence on the main reasons of a forecast, e.g. "Compared with an
-    average day (5,548 trips): weather -22 %, level of the last weeks +25 %."
+    """One sentence on the main reasons of a forecast, e.g. "Compared with the
+    model's starting point (5,548 trips): weather -22 %, level of the last
+    weeks +25 %."
 
     reference names what the base stands for, by default reference_day.
     """
@@ -143,6 +159,6 @@ def reasons_text(explanation: pd.Series, reference: str | None = None) -> str:
     start = f"Compared with {reference} ({explanation['base']:,.0f} trips)"
     reasons = main_reasons(explanation)
     if not reasons:
-        return f"{start}: no input changes the forecast by more than {MIN_CHANGE:.0%}."
+        return f"{start}: no input changes the forecast by {MIN_CHANGE * 100:.0f} % or more."
     parts = [f"{GROUP_LABELS[group]} {(factor - 1) * 100:+.0f} %" for group, factor in reasons]
     return f"{start}: {', '.join(parts)}."

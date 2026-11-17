@@ -197,7 +197,8 @@ def test_page_gives_the_reasons_of_the_forecast_when_explained():
          "weather": 0.7, "recent_level": 1.0, "this_site": np.nan}
     )
     html = render_page(make_daily(), make_log(), [], TODAY, make_weather(), explanation=explanation)
-    assert "<strong>Why:</strong> Compared with an average day (5,000 trips): weather -30 %" in html
+    # The apostrophe of "model's" is escaped in the HTML
+    assert "<strong>Why:</strong> Compared with the model&#x27;s starting point (5,000 trips): weather -30 %" in html
     assert "SHAP values" in html
 
 

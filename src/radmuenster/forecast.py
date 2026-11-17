@@ -21,6 +21,7 @@ from radmuenster.data import DEFAULT_SITE, load_intervals, to_daily
 from radmuenster.features import MIN_LAG, PERIOD_STARTS, build_features, training_table
 from radmuenster.models import fit_lightgbm, predict_lightgbm
 from radmuenster.dashboard import sites_overview
+from radmuenster.explain import GROUPS, explain_global, explain_lightgbm
 from radmuenster.monitoring import (
     STATUS_FILE,
     MonitoringWarning,
@@ -59,6 +60,13 @@ GLOBAL_MODEL_NAME = "global_lightgbm"
 # Forecasts made afterwards by backtest.py; never mixed into the logs above
 BACKTEST_FILE = Path("forecasts/sites_backtest.csv")
 
+# Why each forecast came out as it did (explain.py): written together with the
+# forecast and never computed again, so that it always belongs to the
+# published number. One row per forecast and model: the base in trips and one
+# factor per group of features; base times all factors is the forecast.
+EXPLANATION_FILE = Path("forecasts/explanations.csv")
+FORECAST_KEY = ("forecast_date", "site_id", "model")
+
 
 def today_in_muenster(now: datetime | None = None) -> date:
     """Today's date in Münster. now must carry a time zone; default: now."""
@@ -77,10 +85,31 @@ def combine_weather(archive: pd.DataFrame, forecast: pd.DataFrame) -> pd.DataFra
     return archive.combine_first(forecast)
 
 
+def explanation_record(
+    explanation: pd.DataFrame, target: date, made_on: date, site_ids, model: str
+) -> pd.DataFrame:
+    """Rows for EXPLANATION_FILE from the output of explain_lightgbm or
+    explain_global, one per site in site_ids (in the order of explanation)."""
+    record = pd.DataFrame(
+        {
+            "forecast_date": pd.Timestamp(target).date(),
+            "made_on": made_on,
+            "site_id": list(site_ids),
+            "model": model,
+            "base": explanation["base"].round(1).to_numpy(),
+        }
+    )
+    for group in GROUPS:
+        if group in explanation:
+            record[group] = explanation[group].round(4).to_numpy()
+    return record
+
+
 def forecast_day(
     daily: pd.DataFrame, weather: pd.DataFrame, target: date, made_on: date
-) -> pd.DataFrame:
-    """Forecast the count on target, as one row for the forecast log.
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Forecast the count on target, as one row for the forecast log, and its
+    explanation, as one row for EXPLANATION_FILE.
 
     daily is the output of to_daily, weather the output of combine_weather.
     Only days at least MIN_LAG days before target are used, for training and
@@ -101,6 +130,7 @@ def forecast_day(
     model, factors = fit_lightgbm(training_table(known, weather))
     features = build_features(known, weather, pd.DatetimeIndex([target]))
     prediction = predict_lightgbm(model, factors, features)[0]
+    explanation = explain_lightgbm(model, factors, features)
 
     record = pd.DataFrame(
         {
@@ -119,14 +149,15 @@ def forecast_day(
     # weather, and the basis for an honest error of the daily forecast.
     for column in DAILY_VARIABLES.values():
         record[column] = target_weather[column].to_numpy()
-    return record
+    return record, explanation_record(explanation, target, made_on, [DEFAULT_SITE], MODEL_NAME)
 
 
 def forecast_sites(
     counts: dict[str, pd.DataFrame], weather: pd.DataFrame, target: date, made_on: date
-) -> pd.DataFrame:
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Forecast the count on target at every site with one global model, as
-    rows for SITES_FORECAST_FILE.
+    rows for SITES_FORECAST_FILE, and their explanations, as rows for
+    EXPLANATION_FILE.
 
     counts maps a site id to its daily counts (to_daily or site_counts). As in
     forecast_day, only days at least MIN_LAG days before target are used, and
@@ -166,18 +197,28 @@ def forecast_sites(
     )
     for column in DAILY_VARIABLES.values():
         record[column] = target_weather[column].iloc[0]
-    record = record.dropna(subset=["prediction"])
+    explanation = explanation_record(
+        explain_global(model, features), target, made_on, features["site"], GLOBAL_MODEL_NAME
+    )
+    # A site the model was not trained on has no forecast and no explanation
+    forecast = record["prediction"].notna().to_numpy()
+    record, explanation = record[forecast].copy(), explanation[forecast]
     record["prediction"] = record["prediction"].round().astype(int)
-    return record.reset_index(drop=True)
+    return record.reset_index(drop=True), explanation.reset_index(drop=True)
 
 
 DATE_COLUMNS = ["forecast_date", "made_on", "latest_complete_day"]
 
 
 def read_forecasts(path: Path = FORECAST_FILE) -> pd.DataFrame:
-    """The forecast log, with the date columns as timestamps. Site ids stay
-    text: read as numbers, they would not match the ids of the counts."""
-    return pd.read_csv(path, parse_dates=DATE_COLUMNS, dtype={"site_id": str})
+    """A forecast log (or EXPLANATION_FILE), with the date columns it has as
+    timestamps. Site ids stay text: read as numbers, they would not match the
+    ids of the counts."""
+    log = pd.read_csv(path, dtype={"site_id": str})
+    for column in DATE_COLUMNS:
+        if column in log:
+            log[column] = pd.to_datetime(log[column])
+    return log
 
 
 def save_forecast(
@@ -191,7 +232,8 @@ def save_forecast(
     key = list(key)
     record = record.copy()
     # Timestamps like the log read back from CSV, so that keys compare equal
-    record[DATE_COLUMNS] = record[DATE_COLUMNS].apply(pd.to_datetime)
+    dates = [column for column in DATE_COLUMNS if column in record]
+    record[dates] = record[dates].apply(pd.to_datetime)
     if path.exists():
         log = read_forecasts(path)
         # Anti-join: keep the rows of log whose key does not occur in record
@@ -219,8 +261,9 @@ def main() -> None:
     target = today + pd.Timedelta(days=1)
     daily = to_daily(load_intervals(DEFAULT_SITE, end=today))
     weather = combine_weather(load_weather(end=today), load_weather_forecast())
-    record = forecast_day(daily, weather, target, made_on=today)
+    record, explanation = forecast_day(daily, weather, target, made_on=today)
     log = save_forecast(record)
+    save_forecast(explanation, EXPLANATION_FILE, key=FORECAST_KEY)
     sites_daily, failed_sites = load_all_sites(end=today)
     # The error message is only for the issue, not for the public pages
     warnings = run_checks(daily, log, today, sites_daily) + [
@@ -234,8 +277,9 @@ def main() -> None:
     counts = site_counts_by_id(sites_daily, daily)
     # The forecast of the Warendorfer Straße above must not depend on this one
     try:
-        sites_record = forecast_sites(counts, weather, target, made_on=today)
-        sites_log = save_forecast(sites_record, SITES_FORECAST_FILE, key=("forecast_date", "site_id", "model"))
+        sites_record, sites_explanation = forecast_sites(counts, weather, target, made_on=today)
+        sites_log = save_forecast(sites_record, SITES_FORECAST_FILE, key=FORECAST_KEY)
+        save_forecast(sites_explanation, EXPLANATION_FILE, key=FORECAST_KEY)
         warnings += check_site_bias(sites_log, counts, today)
         overview = sites_overview(sites_log, log, counts, today, *_read_backtest())
     # Deliberately broad, like a broken site in load_all_sites
@@ -260,6 +304,7 @@ def main() -> None:
     print(f"Saved to {FORECAST_FILE} and {STATUS_FILE}, page built in {page}")
     print(f"Daily counts of {sites_daily['site_id'].nunique()} sites saved to {sites_data}")
     print(f"Forecasts for {len(sites_record)} sites saved to {SITES_FORECAST_FILE}")
+    print(f"Explanations saved to {EXPLANATION_FILE}")
     for warning in warnings:
         print(f"{'Checked' if warning.checked else 'Warning'}: {warning.text} {warning.action}".rstrip())
 

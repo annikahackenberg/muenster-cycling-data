@@ -54,8 +54,9 @@ def backtest(
         made_on = (target - pd.Timedelta(days=1)).date()
         evening_weather = weather.copy()
         evening_weather.loc[target] = forecast_weather.loc[target, weather.columns]
-        frames.append(forecast_sites(counts, evening_weather, target.date(), made_on))
-        own = forecast_day(daily, evening_weather, target.date(), made_on)
+        # The backtest keeps no explanations: only live forecasts are explained
+        frames.append(forecast_sites(counts, evening_weather, target.date(), made_on)[0])
+        own, _ = forecast_day(daily, evening_weather, target.date(), made_on)
         own.insert(2, "site_id", DEFAULT_SITE)
         own.insert(3, "site_name", SITES_BY_ID[DEFAULT_SITE].name)
         frames.append(own.drop(columns="period"))

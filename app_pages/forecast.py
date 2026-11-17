@@ -11,13 +11,17 @@ import streamlit as st
 from radmuenster.dashboard import (
     CHECKED_HEADING,
     CV_RESULTS,
+    EXPLANATION_CHART_NOTE,
+    EXPLANATION_NOTE,
     HOW_IT_WORKS,
     MIN_ACCURACY_DAYS,
     chart_data,
     counts_chart,
     day_notes,
+    explanation_chart,
     forecast_accuracy,
     forecast_context,
+    forecast_explanation,
     is_stale,
     latest_forecast,
     monitoring_headline,
@@ -25,9 +29,16 @@ from radmuenster.dashboard import (
     weather_metrics,
 )
 from radmuenster.data import DEFAULT_SITE, load_intervals, to_daily
+from radmuenster.explain import reasons_text
 from radmuenster.forecast import GLOBAL_MODEL_NAME, MODEL_NAME, today_in_muenster
 from radmuenster.multi_site import site_counts_by_id
-from radmuenster.published import read_backtest, read_forecast_log, read_sites_forecast_log, read_status
+from radmuenster.published import (
+    read_backtest,
+    read_explanations,
+    read_forecast_log,
+    read_sites_forecast_log,
+    read_status,
+)
 from radmuenster.sites import SITES_BY_ID
 from radmuenster.static_page import DAILY_DATA, SITES_DATA, read_published
 
@@ -57,6 +68,11 @@ def load_sites_log() -> pd.DataFrame:
 @st.cache_data(ttl=CACHE_SECONDS)
 def load_backtest() -> pd.DataFrame:
     return read_backtest()
+
+
+@st.cache_data(ttl=CACHE_SECONDS)
+def load_explanations() -> pd.DataFrame:
+    return read_explanations()
 
 
 @st.cache_data(ttl=CACHE_SECONDS)
@@ -92,11 +108,12 @@ def metric_row():
 
 
 def show_details(
-    site_id: str, log: pd.DataFrame, daily: pd.DataFrame, backtest_wape: float, note: str = ""
+    site_id: str, log: pd.DataFrame, daily: pd.DataFrame, backtest_wape: float, note: str = "",
+    model: str = GLOBAL_MODEL_NAME,
 ) -> None:
-    """Forecast, context, weather, the last weeks and the accuracy at one site.
+    """Forecast, context, why, weather, the last weeks and the accuracy at one site.
 
-    log holds the forecasts of this site by the model shown, daily its counts
+    log holds the forecasts of this site by model, daily its counts
     (count, complete), backtest_wape the error of its backtest (NaN without),
     note the overview's note on the site, e.g. why its chart has no counts.
     """
@@ -128,6 +145,13 @@ def show_details(
             "incomplete days."
         ),
     )
+
+    explanation = forecast_explanation(load_explanations(), forecast, site_id, model)
+    if explanation is not None:
+        st.markdown("**Why this forecast**")
+        st.markdown(reasons_text(explanation))
+        st.altair_chart(explanation_chart(explanation, theme), width="stretch")
+        st.caption(f"{EXPLANATION_NOTE} {EXPLANATION_CHART_NOTE}")
 
     st.markdown("**Weather forecast**")
     row = metric_row()
@@ -230,7 +254,7 @@ site_id = st.selectbox("Counting site", choices, format_func=lambda site: SITES_
 if site_id == DEFAULT_SITE:
     show_details(
         DEFAULT_SITE, log, load_recent_counts(today - timedelta(weeks=CHART_WEEKS)),
-        backtest_wapes.get(DEFAULT_SITE, float("nan")),
+        backtest_wapes.get(DEFAULT_SITE, float("nan")), model=MODEL_NAME,
     )
 else:
     show_details(

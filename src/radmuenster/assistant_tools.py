@@ -26,10 +26,12 @@ from radmuenster.dashboard import (
     STALE_COUNTS_DAYS,
     day_notes,
     forecast_context,
+    forecast_explanation,
     is_stale,
     latest_forecast,
     sites_overview,
 )
+from radmuenster.explain import GROUP_LABELS, group_factors, reasons_text, reference_day
 from radmuenster.explore import RESOLUTIONS, aggregate, flagged_periods, ranking, select
 from radmuenster.findings import key_findings, site_findings, site_profiles
 from radmuenster.forecast import GLOBAL_MODEL_NAME, MODEL_NAME
@@ -37,6 +39,7 @@ from radmuenster.monitoring import evaluate_forecasts
 from radmuenster.multi_site import site_counts_by_id
 from radmuenster.published import (
     read_backtest,
+    read_explanations,
     read_forecast_log,
     read_sites_forecast_log,
     read_status,
@@ -95,6 +98,7 @@ class AssistantData:
     checked_warnings  warnings checked by hand, with the result of the check
     sites_log    the forecasts of all sites (SITES_FORECAST_FILE)
     backtest     the backtest of all sites (BACKTEST_FILE)
+    explanations the SHAP explanations of the forecasts (EXPLANATION_FILE)
     """
 
     sites_daily: pd.DataFrame
@@ -106,6 +110,7 @@ class AssistantData:
     checked_warnings: list[str] = field(default_factory=list)
     sites_log: pd.DataFrame = field(default_factory=lambda: pd.DataFrame(columns=_LOG_COLUMNS))
     backtest: pd.DataFrame = field(default_factory=lambda: pd.DataFrame(columns=_LOG_COLUMNS))
+    explanations: pd.DataFrame = field(default_factory=pd.DataFrame)
 
 
 def read_assistant_data(today: date) -> AssistantData:
@@ -122,6 +127,7 @@ def read_assistant_data(today: date) -> AssistantData:
         checked_warnings=status["checked_warnings"],
         sites_log=read_sites_forecast_log(),
         backtest=read_backtest(),
+        explanations=read_explanations(),
     )
 
 
@@ -279,6 +285,46 @@ def get_forecast(data: AssistantData, site: str = FORECAST_SITE) -> dict:
             f"No usable counts since {last_usable:%Y-%m-%d} (the counter is faulty): the forecast "
             "estimates all traffic from older data and cannot be compared with the counts."
         )
+    return result
+
+
+EXPLANATION_MEANING = (
+    "How the model weighed its inputs for this forecast (SHAP values), not a measured cause. "
+    "The factors multiply: base_trips (the model's starting point, or a usual day at the site) "
+    "times all factors gives the forecast."
+)
+
+
+def explain_forecast(data: AssistantData, site: str = FORECAST_SITE) -> dict:
+    """Why the latest forecast at a site came out as it did: the model's own
+    breakdown into groups of inputs, as factors on a reference day."""
+    name = _site(data, site)
+    log, _, _, _ = _site_forecasts(data, name)
+    if log.empty:
+        return {"site": name, "note": "No forecast for this site yet: they start with the next daily run."}
+    forecast = latest_forecast(log)
+    model = MODEL_NAME if name == FORECAST_SITE else GLOBAL_MODEL_NAME
+    explanation = forecast_explanation(data.explanations, forecast, SITE_IDS[name], model)
+    result = {
+        "site": name,
+        "forecast_date": f"{forecast['forecast_date']:%Y-%m-%d}",
+        "predicted_trips": _number(forecast["prediction"]),
+    }
+    if explanation is None:
+        result["note"] = "No explanation for this forecast: it was made before explanations were saved."
+        return result
+    result.update(
+        {
+            "compared_with": reference_day(explanation),
+            "base_trips": _number(explanation["base"]),
+            "change_percent": {
+                GROUP_LABELS[group]: _number((factor - 1) * 100, 1)
+                for group, factor in group_factors(explanation).items()
+            },
+            "main_reasons": reasons_text(explanation),
+            "meaning": EXPLANATION_MEANING,
+        }
+    )
     return result
 
 
@@ -510,6 +556,17 @@ TOOL_SPECS = [
         f"site, use the {FORECAST_SITE}, the site with the most detailed forecast.",
         _schema({"site": _SITE}, ["site"]),
         get_forecast,
+    ),
+    ToolSpec(
+        "explain_forecast",
+        "Why the latest forecast at one site came out as it did, from the model itself (SHAP values): "
+        "the change in percent per group of inputs against a reference day. Groups: weekday and "
+        "season; holidays and bridge days; university and school holidays; weather (forecast); level "
+        "of the last weeks (recent counts, which also carry part of the weekday, the season and "
+        "changes at the counter); this site (global model only: what is specific to the site). "
+        f"If the user names no site, use the {FORECAST_SITE}.",
+        _schema({"site": _SITE}, ["site"]),
+        explain_forecast,
     ),
     ToolSpec(
         "get_forecasts_all_sites",

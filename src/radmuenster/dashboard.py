@@ -14,6 +14,8 @@ import pandas as pd
 from holidays import Germany
 
 from radmuenster.data import DEFAULT_SITE
+from radmuenster.explain import GROUP_LABELS, group_factors
+from radmuenster.explore import PALETTE
 from radmuenster.features import SUBDIVISION, academic_features, calendar_features, lag_features
 from radmuenster.monitoring import evaluate_forecasts, evaluate_site_forecasts
 
@@ -69,6 +71,16 @@ HOW_IT_WORKS = (
         "site for the sites with a long history and clearly better for the newer ones.",
     ),
     (
+        "Explanation",
+        "each forecast is taken apart into a starting point and one factor per group of inputs "
+        "(weekday and season, holidays, university and school holidays, weather, level of the last "
+        "weeks and, in the model of all sites, this site: what is specific to it) with SHAP values, "
+        "which LightGBM computes itself. The starting point is a typical day over all training years, "
+        "averaged on the log scale and so a little below the average day; at the other sites it is a "
+        "usual day at the site. The factors show how the model weighed its inputs, not what causes "
+        "the traffic.",
+    ),
+    (
         "Automation",
         "a scheduled GitHub Actions workflow forecasts tomorrow every evening, runs the monitoring "
         "and stores the forecast with its weather forecast, which both the static page and the "
@@ -78,6 +90,74 @@ HOW_IT_WORKS = (
 
 
 CHECKED_HEADING = "Checked by hand, nothing to do:"
+
+EXPLANATION_NOTE = (
+    "How the model weighed its inputs (SHAP values), not a measured cause. The starting point "
+    "times all factors gives the forecast."
+)
+
+# Below the waterfall only: the factors multiply, so the same factor moves more
+# trips the later it comes in the chart. The percentages do not depend on it.
+EXPLANATION_CHART_NOTE = (
+    "The factors multiply, so the length of a bar in trips also depends on the bars before it; "
+    "the percentages do not."
+)
+
+
+def forecast_explanation(
+    explanations: pd.DataFrame, forecast: pd.Series, site_id: str, model: str
+) -> pd.Series | None:
+    """The explanation (EXPLANATION_FILE) of forecast at site_id by model;
+    None if there is none, e.g. for forecasts made before explanations.
+
+    The prediction has to match too: an explanation of another forecast for
+    the same day (another run, e.g. a local one, while the log comes from
+    main) would describe a different number.
+    """
+    if explanations.empty or "prediction" not in explanations:
+        return None
+    rows = explanations[
+        (explanations["forecast_date"] == forecast["forecast_date"])
+        & (explanations["site_id"] == site_id)
+        & (explanations["model"] == model)
+        & (explanations["prediction"] == forecast["prediction"])
+    ]
+    return None if rows.empty else rows.iloc[-1]
+
+
+def explanation_chart(explanation: pd.Series, theme: str) -> alt.LayerChart:
+    """A waterfall from the starting point over each group of inputs to the forecast,
+    as horizontal bars, so that the labels fit on a phone.
+
+    explanation is one row of EXPLANATION_FILE, theme "light" or "dark".
+    """
+    rows, level = [], float(explanation["base"])
+    rows.append(("Starting point", 0.0, level, "base", f"{level:,.0f}"))
+    for group, factor in group_factors(explanation).items():
+        new = level * factor
+        rows.append((GROUP_LABELS[group].capitalize(), level, new, "up" if new >= level else "down",
+                     f"{(factor - 1) * 100:+.0f} %"))
+        level = new
+    rows.append(("Forecast", 0.0, level, "forecast", f"{level:,.0f}"))
+    data = pd.DataFrame(rows, columns=["step", "start", "end", "kind", "label"])
+    data["right"] = data[["start", "end"]].max(axis=1)
+
+    palette = PALETTE[theme]
+    colors = {"base": SERIES_COLORS[theme][COUNTED], "up": palette[2], "down": palette[7],
+              "forecast": SERIES_COLORS[theme][FORECAST]}
+    base = alt.Chart(data).encode(
+        y=alt.Y("step:N", sort=list(data["step"]), title=None, axis=alt.Axis(labelLimit=220))
+    )
+    bars = base.mark_bar(height=16).encode(
+        x=alt.X("start:Q", title="Trips per day", scale=alt.Scale(zero=True)),
+        x2="end:Q",
+        color=alt.Color(
+            "kind:N", scale=alt.Scale(domain=list(colors), range=list(colors.values())), legend=None
+        ),
+        tooltip=[alt.Tooltip("step:N", title=" "), alt.Tooltip("label:N", title="Change")],
+    )
+    labels = base.mark_text(align="left", dx=4).encode(x="right:Q", text="label:N")
+    return alt.layer(bars, labels).properties(height=28 * len(data))
 
 
 def monitoring_headline(n_open: int, n_checked: int, day: date) -> str:

@@ -58,6 +58,9 @@ do not estimate from general knowledge.
 holiday, ...) that no tool result states. The findings of get_insights state typical \
 effects (e.g. how much rain lowers a type of route): you may use them to explain a \
 forecast, as the typical effect, not as the model's own breakdown of that forecast.
+- For why a forecast is high or low, use explain_forecast: it is the model's own \
+breakdown of that forecast. Present it as how the model weighed its inputs, not as a \
+measured cause; you may add the typical effects of get_insights to make it concrete.
 - If the latest forecast or the latest counts are for an earlier day than asked, \
 say which day they are for and when the next update comes, and still answer with them.
 - Mention flagged days and data problems only for the sites and days the question is \

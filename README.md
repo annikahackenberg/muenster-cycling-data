@@ -147,6 +147,35 @@ then, with the weather forecast of that evening from Open-Meteo's archive of pre
 It is still slightly optimistic: the flags of outages use hindsight, and summer and autumn are easier to
 forecast than winter and the holidays in the cross-validation.
 
+### Explaining a forecast
+
+Why is tomorrow's forecast what it is? LightGBM computes **SHAP values** itself (TreeSHAP,
+`predict(..., pred_contrib=True)`): one contribution per feature plus a base value, the mean forecast over
+the training data, which add up exactly to the forecast. The models forecast log(count), so on the count the
+contributions become factors: forecast = base × one factor per input. The base is the mean of log(count)
+turned back into trips, a geometric mean below the average day (about 5,560 against 6,080 trips at the
+Warendorfer Straße), so the pages call it the model's starting point. [explain.py](src/radmuenster/explain.py)
+sums them into five groups (weekday and season, holidays and bridge days, university and school holidays,
+weather, level of the last weeks), plus "this site" in the global model, whose base is a usual day at the site
+(details: [notebooks/04_explanations.ipynb](notebooks/04_explanations.ipynb)).
+
+The explanation shows how the model weighed its inputs, not what causes the traffic. Correlated features share
+their effect in a way that depends on the trees: the mean of the last four same weekdays already contains the
+weekday, the season and the measurement period, so a Sunday shows up partly under the weekday (×0.75) and partly
+under the level of the last weeks (×0.64). That is why single features are summed into groups.
+
+What the explanations of 2026 show (model trained on the years before):
+
+- **SHAP and the built-in importance disagree**: by SHAP the weekday is the most important single feature
+  (17 % of all contributions), by gain only 6 %; `lag_7` is used in many splits but moves single forecasts little.
+- **Rain**: 12 or more hours of rain lower the forecast to about ×0.85 on workdays and ×0.75 at weekends; the
+  leisure routes along the Kanalpromenade get about ×0.75 where the other sites get ×0.85.
+- **The largest errors** are 5 of 8 snow days in January 2026: the weather lowers the forecast to ×0.2–0.4, and
+  it is still only a third to a half of the count.
+- **Ideas for a better model**: a public holiday on a Saturday is treated like one on a workday (3 October 2026:
+  ×0.52, forecast 3,235, counted 4,728), and bridge days get no weight at all (×1.0), so 2 January and 5 June were
+  forecast too high. A holiday factor per weekday would help.
+
 ## Daily forecast
 
 ```bash
@@ -160,7 +189,9 @@ error of the daily forecast. "Tomorrow" is determined in Münster's time zone.
 
 The same run trains the global model on all sites and logs tomorrow's forecast of every site in
 [forecasts/sites_forecasts.csv](forecasts/sites_forecasts.csv). The Warendorfer Straße keeps its own model;
-its global forecast is logged too, to compare both on real forecasts. If the forecasts of all sites fail,
+its global forecast is logged too, to compare both on real forecasts. The explanation of every forecast is
+saved with it in [forecasts/explanations.csv](forecasts/explanations.csv) (base and one factor per group), so the
+pages show the explanation of the forecast as it was made, never recomputed by a later model. If the forecasts of all sites fail,
 the forecast of the Warendorfer Straße and the page are still made, and the monitoring reports the error.
 
 The same run checks whether the forecast can still be trusted and writes the warnings to
@@ -212,7 +243,8 @@ The Streamlit app has four pages and can be understood on its own. [Forecast](ap
 like the web page, with one site (the Warendorfer Straße unless another is selected): the forecast next to
 the same weekday last week and a typical one, the weather forecast it is based on, what sets the day apart
 in the calendar (public holiday, school holidays, no lectures), the counts and forecasts of the last eight
-weeks and the error of the logged forecasts. Below it comes tomorrow at all sites: the forecast, the change
+weeks and the error of the logged forecasts. *Why this forecast* shows the explanation as a sentence and as a
+waterfall from the base over each group to the forecast (the static page shows the sentence only). Below it comes tomorrow at all sites: the forecast, the change
 against a typical day and the typical error of each site (from the backtest until a site has a week of real
 forecasts), then the monitoring status. It reads the forecast log from `main` on GitHub, so it shows a new forecast without redeploying,
 and loads the recent counts directly from the city. If the daily job is switched off, the page says so
@@ -228,9 +260,11 @@ installed from [requirements.txt](requirements.txt).
 
 *Leeze* is Münster dialect for bicycle. The chat answers questions about the forecasts at all sites and their accuracy, the
 counts at all sites, the weather and problems in the data. A language model (Claude Haiku) only chooses
-tools and words the answer; every number comes from one of ten tools
+tools and words the answer; every number comes from one of eleven tools
 ([assistant_tools.py](src/radmuenster/assistant_tools.py)), plain functions on the published data that can
 be tested without a model. Below each answer, the page shows which tools were called with which arguments.
+Asked why a forecast is high or low, it uses the model's own explanation
+(`explain_forecast`) and words it as how the model weighed the inputs, not as a measured cause.
 The tool-use loop ([assistant.py](src/radmuenster/assistant.py)) is written by hand on the Messages API: it
 runs the tools the model asks for, sends wrong calls back as errors the model can correct, and makes the
 model answer after at most six tool rounds. The client is passed in, so the tests play the model.
@@ -330,3 +364,5 @@ the app reads instead of downloading them from the city.
    static page (the first finding) and in the assistant
 10. [x] Voice: spoken questions and answers in the assistant (speech-to-text, Claude with tools,
     text-to-speech) and an evaluation of the transcription on recorded questions
+11. [x] Explain single forecasts with SHAP values: grouped factors per forecast, saved with it, as a waterfall
+    in the app, a sentence on the static page and a tool of the assistant

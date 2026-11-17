@@ -21,11 +21,13 @@ import requests
 
 from radmuenster import findings
 from radmuenster.data import DEFAULT_SITE
+from radmuenster.explain import reasons_text
 from radmuenster.monitoring import MonitoringWarning
 from radmuenster.dashboard import (
     CHECKED_HEADING,
     COUNTED,
     CV_RESULTS,
+    EXPLANATION_NOTE,
     FORECAST,
     HOW_IT_WORKS,
     chart_data,
@@ -263,6 +265,7 @@ def render_page(
     weather: pd.DataFrame,
     overview: pd.DataFrame | None = None,
     site_counts: dict[str, pd.DataFrame] | None = None,
+    explanation: pd.Series | None = None,
 ) -> str:
     """The whole page as HTML.
 
@@ -270,7 +273,8 @@ def render_page(
     log the forecast log, warnings the result of run_checks, today the date of
     the run in Münster, weather the output of load_weather, overview the
     forecasts of all sites (sites_overview; without it, that section is left out),
-    site_counts the counts of all sites (site_counts_by_id) for a finding across them.
+    site_counts the counts of all sites (site_counts_by_id) for a finding across them,
+    explanation the explanation of the forecast (forecast_explanation), left out without it.
     """
     forecast = latest_forecast(log)
     start = today - timedelta(weeks=CHART_WEEKS)
@@ -282,6 +286,11 @@ def render_page(
             f"made on {forecast['made_on']:%d %B %Y}.</p>"
         )
     delta, context = _context_section(forecast, daily)
+    if explanation is not None:
+        context = (
+            f'<p><strong>Why:</strong> {escape(reasons_text(explanation))}</p>\n'
+            f'<p class="note">{escape(EXPLANATION_NOTE)}</p>\n{context}'
+        )
     findings_html, specs = _findings_section(daily, weather, site_counts)
     specs["counts"] = {
         t: themed_spec(counts_chart(data, t, THEMES[t]["surface"]), t) for t in THEMES

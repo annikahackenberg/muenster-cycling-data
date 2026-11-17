@@ -4,7 +4,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from radmuenster.explain import GROUPS
 from radmuenster.forecast import (
+    EXPLANATION_FILE,
+    FORECAST_KEY,
     combine_weather,
     forecast_day,
     forecast_sites,
@@ -48,7 +51,7 @@ def daily():
 
 def test_forecast_day_predicts_tomorrow(daily):
     weather = make_weather("2025-01-01", "2026-10-13")
-    record = forecast_day(daily, weather, date(2026, 10, 13), made_on=date(2026, 10, 12))
+    record, _ = forecast_day(daily, weather, date(2026, 10, 13), made_on=date(2026, 10, 12))
     assert len(record) == 1
     row = record.iloc[0]
     # Tuesday: the model should have learned the workday level
@@ -61,7 +64,7 @@ def test_forecast_day_predicts_tomorrow(daily):
 def test_forecast_day_ignores_days_the_forecast_could_not_know(daily):
     # Forecasting a past date: the day before must not be used
     weather = make_weather("2025-01-01", "2026-10-13")
-    record = forecast_day(daily, weather, date(2026, 10, 1), made_on=date(2026, 9, 30))
+    record, _ = forecast_day(daily, weather, date(2026, 10, 1), made_on=date(2026, 9, 30))
     assert record.iloc[0]["latest_complete_day"] == date(2026, 9, 29)
 
 
@@ -69,6 +72,59 @@ def test_forecast_day_raises_without_weather_for_target(daily):
     weather = make_weather("2025-01-01", "2026-10-12")
     with pytest.raises(ValueError, match="2026-10-13"):
         forecast_day(daily, weather, date(2026, 10, 13), made_on=date(2026, 10, 12))
+
+
+def test_forecast_day_explains_its_forecast(daily):
+    weather = make_weather("2025-01-01", "2026-10-13")
+    record, explanation = forecast_day(daily, weather, date(2026, 10, 13), made_on=date(2026, 10, 12))
+    row = explanation.iloc[0]
+    assert (row["forecast_date"], row["made_on"]) == (date(2026, 10, 13), date(2026, 10, 12))
+    assert (row["site_id"], row["model"]) == ("100034983", "lightgbm")
+    # The own model has no site feature
+    groups = [group for group in GROUPS if group != "this_site"]
+    assert list(explanation.columns) == [
+        *FORECAST_KEY[:1], "made_on", *FORECAST_KEY[1:], "prediction", "base", *groups
+    ]
+    # The logged prediction, to match the explanation to its forecast
+    assert row["prediction"] == record.iloc[0]["prediction"]
+    # Base times the factors gives the forecast (factors rounded to 4 decimals)
+    assert row["base"] * row[groups].prod() == pytest.approx(record.iloc[0]["prediction"], rel=1e-3)
+
+
+def test_failed_explanation_keeps_the_forecast(daily, monkeypatch):
+    def broken(*args):
+        raise ValueError("Features without a group in GROUPS: ['new_feature']")
+
+    monkeypatch.setattr("radmuenster.forecast.explain_lightgbm", broken)
+    monkeypatch.setattr("radmuenster.forecast.explain_global", broken)
+    weather = make_weather("2025-01-01", "2026-10-13")
+    record, explanation = forecast_day(daily, weather, date(2026, 10, 13), made_on=date(2026, 10, 12))
+    assert len(record) == 1 and explanation is None
+    counts = {"100034980": daily, "100034981": daily.assign(count=daily["count"] / 10)}
+    record, explanation = forecast_sites(counts, weather, date(2026, 10, 13), made_on=date(2026, 10, 12))
+    assert len(record) == 2 and explanation is None
+
+
+def test_forecast_sites_explains_every_forecast(daily):
+    weather = make_weather("2025-01-01", "2026-10-13")
+    counts = {"100034980": daily, "100034981": daily.assign(count=daily["count"] / 10)}
+    record, explanation = forecast_sites(counts, weather, date(2026, 10, 13), made_on=date(2026, 10, 12))
+    assert explanation["site_id"].tolist() == record["site_id"].tolist()
+    assert explanation["prediction"].tolist() == record["prediction"].tolist()
+    assert (explanation["model"] == "global_lightgbm").all()
+    factors = explanation[list(GROUPS)].prod(axis=1)
+    assert (explanation["base"] * factors).tolist() == pytest.approx(record["prediction"].tolist(), rel=1e-3)
+
+
+def test_explanations_are_saved_once_per_forecast(daily, tmp_path):
+    weather = make_weather("2025-01-01", "2026-10-13")
+    path = tmp_path / EXPLANATION_FILE.name
+    _, explanation = forecast_day(daily, weather, date(2026, 10, 13), made_on=date(2026, 10, 12))
+    save_forecast(explanation, path, key=FORECAST_KEY)
+    # A second run on the same day replaces the row
+    log = save_forecast(explanation, path, key=FORECAST_KEY)
+    assert len(log) == 1
+    assert read_forecasts(path)["site_id"].tolist() == ["100034983"]
 
 
 def make_record(forecast_date: date, prediction: int, model: str = "lightgbm") -> pd.DataFrame:
@@ -105,7 +161,7 @@ def test_forecast_sites_predicts_every_site_on_its_own_scale(daily):
         "100034980": daily,  # Hammer Straße
         "100034981": daily.assign(count=daily["count"] / 10),  # Weseler Straße, a tenth
     }
-    record = forecast_sites(counts, weather, date(2026, 10, 13), made_on=date(2026, 10, 12))
+    record, _ = forecast_sites(counts, weather, date(2026, 10, 13), made_on=date(2026, 10, 12))
     assert record["site_name"].tolist() == ["Hammer Straße", "Weseler Straße"]
     assert record["prediction"].tolist() == pytest.approx([6000, 600], rel=0.05)
     assert (record["model"] == "global_lightgbm").all()
@@ -115,8 +171,9 @@ def test_forecast_sites_predicts_every_site_on_its_own_scale(daily):
 def test_forecast_sites_skips_a_site_without_usable_days(daily):
     weather = make_weather("2025-01-01", "2026-10-13")
     counts = {"100034980": daily, "100034981": daily.assign(complete=False)}
-    record = forecast_sites(counts, weather, date(2026, 10, 13), made_on=date(2026, 10, 12))
+    record, explanation = forecast_sites(counts, weather, date(2026, 10, 13), made_on=date(2026, 10, 12))
     assert record["site_id"].tolist() == ["100034980"]
+    assert explanation["site_id"].tolist() == ["100034980"]
 
 
 def test_save_forecast_keeps_one_row_per_site(tmp_path):

@@ -1,5 +1,6 @@
 import inspect
 import json
+from dataclasses import replace
 from datetime import date
 
 import numpy as np
@@ -12,6 +13,7 @@ from radmuenster.assistant_tools import (
     TOOL_SPECS,
     AssistantData,
     ToolError,
+    explain_forecast,
     get_counts,
     get_flagged_periods,
     get_forecast,
@@ -103,6 +105,23 @@ def make_sites_log(dates: pd.DatetimeIndex, prediction: float) -> pd.DataFrame:
     return pd.concat(frames, ignore_index=True)
 
 
+def make_explanations() -> pd.DataFrame:
+    """Explanations of the forecasts for 14 October, as in EXPLANATION_FILE:
+    the own model at the Warendorfer Straße (no factor for the site), the
+    global model at the Neutor. Base times factors gives the forecast."""
+    nan = float("nan")
+    rows = [
+        (SITE_IDS["Warendorfer Straße"], "lightgbm", 5000.0, 1.2, 1.0, 1.0, 1.1, 1.0, nan),
+        (SITE_IDS["Neutor"], "global_lightgbm", 10000.0, 1.0, 1.0, 1.0, 0.8, 1.1, 1.0),
+    ]
+    columns = ["site_id", "model", "base", "weekday_season", "holidays", "uni_school", "weather",
+               "recent_level", "this_site"]
+    table = pd.DataFrame(rows, columns=columns)
+    table.insert(0, "forecast_date", pd.Timestamp("2026-10-14"))
+    table.insert(1, "made_on", pd.Timestamp("2026-10-13"))
+    return table
+
+
 @pytest.fixture(scope="module")
 def data() -> AssistantData:
     return AssistantData(
@@ -110,6 +129,7 @@ def data() -> AssistantData:
         checked_warnings=["A checked warning."],
         sites_log=make_sites_log(pd.date_range("2026-10-10", "2026-10-14", freq="D"), 8800.0),
         backtest=make_sites_log(pd.date_range("2026-10-01", "2026-10-05", freq="D"), 8000.0),
+        explanations=make_explanations(),
     )
 
 
@@ -178,6 +198,39 @@ def test_get_forecast_at_another_site_comes_from_the_global_model(data):
     assert "note" not in result
 
 
+def test_explain_forecast_of_the_own_model(data):
+    result = explain_forecast(data, "Warendorfer Straße")
+    assert (result["forecast_date"], result["predicted_trips"], result["base_trips"]) == ("2026-10-14", 6600, 5000)
+    assert result["compared_with"] == "an average day"
+    # Every group of the own model, but no factor for the site
+    assert result["change_percent"] == {
+        "weekday and season": 20.0,
+        "holidays and bridge days": 0.0,
+        "university and school holidays": 0.0,
+        "weather": 10.0,
+        "level of the last weeks": 0.0,
+    }
+    assert result["main_reasons"] == (
+        "Compared with an average day (5,000 trips): weekday and season +20 %, weather +10 %."
+    )
+    assert "not a measured cause" in result["meaning"]
+
+
+def test_explain_forecast_at_another_site_from_the_global_model(data):
+    result = explain_forecast(data, "neutor")
+    assert result["compared_with"] == "a usual day at this site"
+    assert result["change_percent"]["this site"] == 0.0
+    assert result["change_percent"]["weather"] == -20.0
+
+
+def test_explain_forecast_without_an_explanation(data):
+    older = replace(data, explanations=make_explanations().iloc[0:0])
+    result = explain_forecast(older, "Warendorfer Straße")
+    assert result["predicted_trips"] == 6600
+    assert "made before explanations" in result["note"]
+    assert "change_percent" not in result
+
+
 def test_get_forecast_accuracy_at_another_site_with_its_backtest(data):
     result = get_forecast_accuracy(data, 7, "Neutor")
     assert result["days_evaluated"] == 3  # 10 to 12 October have counts
@@ -231,6 +284,7 @@ VALID_ARGUMENTS = {
     "get_counts": {"site": "Neutor", "start": "2026-09-01", "end": "2026-09-30", "resolution": "week"},
     "rank_sites": {"start": "2026-09-01", "end": "2026-09-30"},
     "get_forecast": {"site": "Neutor"},
+    "explain_forecast": {"site": "Neutor"},
     "get_forecasts_all_sites": {},
     "get_forecast_accuracy": {"last_days": 28, "site": "Neutor"},
     "get_weather": {"start": "2026-10-01", "end": "2026-10-14"},

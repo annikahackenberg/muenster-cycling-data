@@ -9,7 +9,9 @@ from radmuenster.dashboard import (
     FORECAST,
     chart_data,
     day_notes,
+    explanation_chart,
     forecast_accuracy,
+    forecast_explanation,
     forecast_context,
     is_stale,
     latest_forecast,
@@ -178,3 +180,50 @@ def test_monitoring_headline():
     assert monitoring_headline(1, 1, day) == "Warnings on 28 October 2026:"
     assert monitoring_headline(0, 1, day) == "No open warnings on 28 October 2026."
     assert monitoring_headline(0, 0, day) == "All checks passed on 28 October 2026."
+
+
+def make_explanations() -> pd.DataFrame:
+    """Two forecasts of the Warendorfer Straße (own and global model) on one day,
+    as read from EXPLANATION_FILE: the own model has no factor for the site."""
+    return pd.DataFrame(
+        {
+            "forecast_date": pd.Timestamp("2026-11-18"),
+            "made_on": pd.Timestamp("2026-11-17"),
+            "site_id": "100034983",
+            "model": ["lightgbm", "global_lightgbm"],
+            "base": [5000.0, 6000.0],
+            "weekday_season": [1.2, 1.1],
+            "holidays": [1.0, 1.0],
+            "uni_school": [1.0, 1.0],
+            "weather": [0.5, 0.6],
+            "recent_level": [1.0, 1.0],
+            "this_site": [np.nan, 1.05],
+        }
+    )
+
+
+def test_forecast_explanation_finds_the_row_of_the_forecast_and_model():
+    forecast = pd.Series({"forecast_date": pd.Timestamp("2026-11-18")})
+    explanations = make_explanations()
+    assert forecast_explanation(explanations, forecast, "100034983", "lightgbm")["base"] == 5000.0
+    assert forecast_explanation(explanations, forecast, "100034983", "global_lightgbm")["base"] == 6000.0
+
+
+def test_forecast_explanation_is_none_without_a_matching_row():
+    older = pd.Series({"forecast_date": pd.Timestamp("2026-11-17")})
+    assert forecast_explanation(make_explanations(), older, "100034983", "lightgbm") is None
+    assert forecast_explanation(pd.DataFrame(), older, "100034983", "lightgbm") is None
+
+
+def test_explanation_chart_runs_from_the_base_to_the_forecast():
+    own = make_explanations().iloc[0]
+    data = explanation_chart(own, "light").data
+    # this_site is NaN for the own model and left out
+    assert data["step"].tolist() == [
+        "Base", "Weekday and season", "Holidays and bridge days", "University and school holidays",
+        "Weather", "Level of the last weeks", "Forecast",
+    ]
+    assert data["end"].iloc[-1] == pytest.approx(5000 * 1.2 * 0.5)
+    # Each step starts where the one before ended
+    assert data["start"].iloc[1:-1].tolist() == data["end"].iloc[:-2].tolist()
+    assert data.loc[data["step"] == "Weather", ["kind", "label"]].values.tolist() == [["down", "-50 %"]]

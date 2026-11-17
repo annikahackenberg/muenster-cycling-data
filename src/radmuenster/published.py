@@ -14,7 +14,13 @@ from urllib.request import urlopen
 
 import pandas as pd
 
-from radmuenster.forecast import BACKTEST_FILE, FORECAST_FILE, SITES_FORECAST_FILE, read_forecasts
+from radmuenster.forecast import (
+    BACKTEST_FILE,
+    EXPLANATION_FILE,
+    FORECAST_FILE,
+    SITES_FORECAST_FILE,
+    read_forecasts,
+)
 from radmuenster.monitoring import STATUS_FILE
 
 # The daily job commits to main; reading from there gets the latest forecast
@@ -51,6 +57,11 @@ def read_sites_forecast_log() -> pd.DataFrame:
 def read_backtest() -> pd.DataFrame:
     """The backtest of all sites (BACKTEST_FILE)."""
     return _read_optional_log(BACKTEST_FILE)
+
+
+def read_explanations() -> pd.DataFrame:
+    """The explanations of the forecasts (EXPLANATION_FILE)."""
+    return _read_optional_log(EXPLANATION_FILE)
 
 
 def read_status() -> dict:

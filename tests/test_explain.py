@@ -9,6 +9,7 @@ from radmuenster.explain import (
     grouped_contributions,
     main_reasons,
     reasons_text,
+    reference_day,
 )
 from radmuenster.features import build_features, training_table
 from radmuenster.models import _lightgbm_inputs, fit_lightgbm, predict_lightgbm
@@ -147,3 +148,14 @@ def test_reasons_text_without_large_changes():
         "Compared with a usual day at this site (5,000 trips): "
         "no input changes the forecast by more than 3%."
     )
+
+
+def test_reasons_text_starts_from_a_usual_day_at_the_site_for_the_global_model():
+    global_row = make_explanation(weather=0.5, this_site=1.1)
+    own_row = make_explanation(weather=0.5)
+    # Read back from the explanation file, the own model has no factor for the site
+    own_row["this_site"] = float("nan")
+    assert reference_day(global_row) == "a usual day at this site"
+    assert reference_day(own_row) == "an average day"
+    assert reasons_text(own_row).startswith("Compared with an average day")
+    assert main_reasons(own_row) == [("weather", 0.5)]

@@ -189,3 +189,17 @@ def test_page_shows_the_first_finding_across_all_sites_with_a_link_to_the_others
     assert "/insights" in html
     # The other findings across sites are only in the app
     assert "chart-site_rain" not in html
+
+
+def test_page_gives_the_reasons_of_the_forecast_when_explained():
+    explanation = pd.Series(
+        {"base": 5000.0, "weekday_season": 1.2, "holidays": 1.0, "uni_school": 1.0,
+         "weather": 0.7, "recent_level": 1.0, "this_site": np.nan}
+    )
+    html = render_page(make_daily(), make_log(), [], TODAY, make_weather(), explanation=explanation)
+    assert "<strong>Why:</strong> Compared with an average day (5,000 trips): weather -30 %" in html
+    assert "SHAP values" in html
+
+
+def test_page_without_explanation_has_no_reasons():
+    assert "<strong>Why:</strong>" not in render()

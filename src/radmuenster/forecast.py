@@ -20,7 +20,7 @@ import pandas as pd
 from radmuenster.data import DEFAULT_SITE, load_intervals, to_daily
 from radmuenster.features import MIN_LAG, PERIOD_STARTS, build_features, training_table
 from radmuenster.models import fit_lightgbm, predict_lightgbm
-from radmuenster.dashboard import sites_overview
+from radmuenster.dashboard import forecast_explanation, sites_overview
 from radmuenster.explain import GROUPS, explain_global, explain_lightgbm
 from radmuenster.monitoring import (
     STATUS_FILE,
@@ -293,7 +293,8 @@ def main() -> None:
         )
     warnings = [warning for warning in warnings if warning is not None]
     write_status(warnings, today)
-    page = write_site(render_page(daily, log, warnings, today, weather, overview, counts))
+    own_explanation = forecast_explanation(explanation, record.iloc[0], DEFAULT_SITE, MODEL_NAME)
+    page = write_site(render_page(daily, log, warnings, today, weather, overview, counts, own_explanation))
     sites_data = write_data(sites_daily, SITES_DATA)
     write_data(daily, DAILY_DATA)
     write_data(weather, WEATHER_DATA)

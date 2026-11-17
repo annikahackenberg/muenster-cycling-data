@@ -14,6 +14,8 @@ import pandas as pd
 from holidays import Germany
 
 from radmuenster.data import DEFAULT_SITE
+from radmuenster.explain import GROUP_LABELS, GROUPS
+from radmuenster.explore import PALETTE
 from radmuenster.features import SUBDIVISION, academic_features, calendar_features, lag_features
 from radmuenster.monitoring import evaluate_forecasts, evaluate_site_forecasts
 
@@ -69,6 +71,13 @@ HOW_IT_WORKS = (
         "site for the sites with a long history and clearly better for the newer ones.",
     ),
     (
+        "Explanation",
+        "each forecast is taken apart into a base and one factor per group of inputs (weekday and "
+        "season, holidays, university and school holidays, weather, level of the last weeks) with SHAP "
+        "values, which LightGBM computes itself. They show how the model weighed its inputs, not "
+        "what causes the traffic.",
+    ),
+    (
         "Automation",
         "a scheduled GitHub Actions workflow forecasts tomorrow every evening, runs the monitoring "
         "and stores the forecast with its weather forecast, which both the static page and the "
@@ -78,6 +87,64 @@ HOW_IT_WORKS = (
 
 
 CHECKED_HEADING = "Checked by hand, nothing to do:"
+
+EXPLANATION_NOTE = (
+    "How the model weighed its inputs (SHAP values), not a measured cause. The base times all "
+    "factors gives the forecast."
+)
+
+
+def forecast_explanation(
+    explanations: pd.DataFrame, forecast: pd.Series, site_id: str, model: str
+) -> pd.Series | None:
+    """The explanation (EXPLANATION_FILE) of forecast at site_id by model;
+    None if there is none, e.g. for forecasts made before explanations."""
+    if explanations.empty:
+        return None
+    rows = explanations[
+        (explanations["forecast_date"] == forecast["forecast_date"])
+        & (explanations["site_id"] == site_id)
+        & (explanations["model"] == model)
+    ]
+    return None if rows.empty else rows.iloc[-1]
+
+
+def explanation_chart(explanation: pd.Series, theme: str) -> alt.LayerChart:
+    """A waterfall from the base over each group of inputs to the forecast,
+    as horizontal bars, so that the labels fit on a phone.
+
+    explanation is one row of EXPLANATION_FILE, theme "light" or "dark".
+    """
+    rows, level = [], float(explanation["base"])
+    rows.append(("Base", 0.0, level, "base", f"{level:,.0f}"))
+    for group in GROUPS:
+        factor = explanation.get(group)
+        if factor is None or pd.isna(factor):
+            continue
+        new = level * float(factor)
+        rows.append((GROUP_LABELS[group].capitalize(), level, new, "up" if new >= level else "down",
+                     f"{(factor - 1) * 100:+.0f} %"))
+        level = new
+    rows.append(("Forecast", 0.0, level, "forecast", f"{level:,.0f}"))
+    data = pd.DataFrame(rows, columns=["step", "start", "end", "kind", "label"])
+    data["right"] = data[["start", "end"]].max(axis=1)
+
+    palette = PALETTE[theme]
+    colors = {"base": SERIES_COLORS[theme][COUNTED], "up": palette[2], "down": palette[7],
+              "forecast": SERIES_COLORS[theme][FORECAST]}
+    base = alt.Chart(data).encode(
+        y=alt.Y("step:N", sort=list(data["step"]), title=None, axis=alt.Axis(labelLimit=220))
+    )
+    bars = base.mark_bar(height=16).encode(
+        x=alt.X("start:Q", title="Trips per day", scale=alt.Scale(zero=True)),
+        x2="end:Q",
+        color=alt.Color(
+            "kind:N", scale=alt.Scale(domain=list(colors), range=list(colors.values())), legend=None
+        ),
+        tooltip=[alt.Tooltip("step:N", title=" "), alt.Tooltip("label:N", title="Change")],
+    )
+    labels = base.mark_text(align="left", dx=4).encode(x="right:Q", text="label:N")
+    return alt.layer(bars, labels).properties(height=28 * len(data))
 
 
 def monitoring_headline(n_open: int, n_checked: int, day: date) -> str:

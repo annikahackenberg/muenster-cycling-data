@@ -117,20 +117,29 @@ def main_reasons(explanation: pd.Series, top: int = 3) -> list[tuple[str, float]
     explanation is one row of explain_lightgbm or explain_global. Compared on
     the log scale, so that halving (0.5) counts as much as doubling (2.0).
     """
-    # Only the groups: the row may carry more, e.g. the count or the site
-    factors = explanation[[group for group in GROUPS if group in explanation.index]].astype(float)
+    # Only the groups: the row may carry more, e.g. the count or the site. A
+    # row of the own model read from EXPLANATION_FILE has no this_site (NaN)
+    factors = explanation[[group for group in GROUPS if group in explanation.index]].astype(float).dropna()
     factors = factors[(factors - 1).abs() >= MIN_CHANGE]
     order = np.log(factors).abs().sort_values(ascending=False).index[:top]
     return [(group, float(factors[group])) for group in order]
 
 
-def reasons_text(explanation: pd.Series, reference: str = "an average day") -> str:
+def reference_day(explanation: pd.Series) -> str:
+    """What the base of explanation stands for: the global model (with a
+    factor for this_site) starts from a usual day at the site."""
+    if pd.notna(explanation.get("this_site")):
+        return "a usual day at this site"
+    return "an average day"
+
+
+def reasons_text(explanation: pd.Series, reference: str | None = None) -> str:
     """One sentence on the main reasons of a forecast, e.g. "Compared with an
     average day (5,548 trips): weather -22 %, level of the last weeks +25 %."
 
-    reference names what the base stands for ("a usual day at this site" for
-    the global model).
+    reference names what the base stands for, by default reference_day.
     """
+    reference = reference or reference_day(explanation)
     start = f"Compared with {reference} ({explanation['base']:,.0f} trips)"
     reasons = main_reasons(explanation)
     if not reasons:

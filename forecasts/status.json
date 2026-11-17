@@ -1,11 +1,9 @@
 {
   "checked_on": "2026-11-17",
   "warnings": [
-    "No counts at the Warendorfer Stra\u00dfe after 2026-11-15: the forecast uses older counts.",
     "Grevener Stra\u00dfe: far below its usual count since 2026-11-13, compared with other sites, maybe a partial outage."
   ],
   "actions": [
-    "The city's daily update may have failed, the download got an old version (compare with the city's repository), or the job started too late, before the city's update of the morning (compare the start of the run with the city's latest commit).",
     "Check it on the explore page; add a real outage to SITE_FAULTS in sites.py. If it needs nothing done, add (\"low_counts\", \"300039331\", \"2026-11-17\", \"<result>\") to CHECKED_WARNINGS in monitoring.py."
   ],
   "checked_warnings": []

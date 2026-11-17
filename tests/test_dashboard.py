@@ -202,15 +202,28 @@ def make_explanations() -> pd.DataFrame:
     )
 
 
+def tomorrow(prediction: float) -> pd.Series:
+    return pd.Series({"forecast_date": pd.Timestamp("2026-11-18"), "prediction": prediction})
+
+
 def test_forecast_explanation_finds_the_row_of_the_forecast_and_model():
-    forecast = pd.Series({"forecast_date": pd.Timestamp("2026-11-18")})
     explanations = make_explanations()
-    assert forecast_explanation(explanations, forecast, "100034983", "lightgbm")["base"] == 5000.0
-    assert forecast_explanation(explanations, forecast, "100034983", "global_lightgbm")["base"] == 6000.0
+    # Base times factors: 5000 * 1.2 * 0.5 and 6000 * 1.1 * 0.6 * 1.05
+    own = forecast_explanation(explanations, tomorrow(3000), "100034983", "lightgbm")
+    assert own["base"] == 5000.0
+    other = forecast_explanation(explanations, tomorrow(4158), "100034983", "global_lightgbm")
+    assert other["base"] == 6000.0
+
+
+def test_forecast_explanation_is_none_if_it_explains_another_number():
+    # E.g. the forecast log from main and the explanation of a local run
+    explanations = make_explanations()
+    assert forecast_explanation(explanations, tomorrow(3020), "100034983", "lightgbm") is not None
+    assert forecast_explanation(explanations, tomorrow(3100), "100034983", "lightgbm") is None
 
 
 def test_forecast_explanation_is_none_without_a_matching_row():
-    older = pd.Series({"forecast_date": pd.Timestamp("2026-11-17")})
+    older = pd.Series({"forecast_date": pd.Timestamp("2026-11-17"), "prediction": 3000.0})
     assert forecast_explanation(make_explanations(), older, "100034983", "lightgbm") is None
     assert forecast_explanation(pd.DataFrame(), older, "100034983", "lightgbm") is None
 

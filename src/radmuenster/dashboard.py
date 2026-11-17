@@ -101,11 +101,21 @@ EXPLANATION_CHART_NOTE = (
 )
 
 
+# Rounding the factors in EXPLANATION_FILE to four digits moves base times
+# factors by at most about 0.2 % from the forecast
+MAX_EXPLANATION_GAP = 0.01
+
+
 def forecast_explanation(
     explanations: pd.DataFrame, forecast: pd.Series, site_id: str, model: str
 ) -> pd.Series | None:
     """The explanation (EXPLANATION_FILE) of forecast at site_id by model;
-    None if there is none, e.g. for forecasts made before explanations."""
+    None if there is none, e.g. for forecasts made before explanations.
+
+    Also None if the explanation does not add up to the forecast: then the
+    two come from different runs (e.g. a forecast log from main and a local
+    explanation file) and the explanation would describe another number.
+    """
     if explanations.empty:
         return None
     rows = explanations[
@@ -113,7 +123,14 @@ def forecast_explanation(
         & (explanations["site_id"] == site_id)
         & (explanations["model"] == model)
     ]
-    return None if rows.empty else rows.iloc[-1]
+    if rows.empty:
+        return None
+    explanation = rows.iloc[-1]
+    factors = explanation[[group for group in GROUPS if group in explanation.index]].astype(float).dropna()
+    explained = explanation["base"] * factors.prod()
+    if abs(explained / forecast["prediction"] - 1) > MAX_EXPLANATION_GAP:
+        return None
+    return explanation
 
 
 def explanation_chart(explanation: pd.Series, theme: str) -> alt.LayerChart:

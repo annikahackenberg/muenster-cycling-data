@@ -93,6 +93,13 @@ EXPLANATION_NOTE = (
     "factors gives the forecast."
 )
 
+# Below the waterfall only: the factors multiply, so the same factor moves more
+# trips the later it comes in the chart. The percentages do not depend on it.
+EXPLANATION_CHART_NOTE = (
+    "The factors multiply, so the length of a bar in trips also depends on the bars before it; "
+    "the percentages do not."
+)
+
 
 def forecast_explanation(
     explanations: pd.DataFrame, forecast: pd.Series, site_id: str, model: str

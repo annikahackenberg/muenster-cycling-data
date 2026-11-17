@@ -11,6 +11,7 @@ import streamlit as st
 from radmuenster.dashboard import (
     CHECKED_HEADING,
     CV_RESULTS,
+    EXPLANATION_CHART_NOTE,
     EXPLANATION_NOTE,
     HOW_IT_WORKS,
     MIN_ACCURACY_DAYS,
@@ -150,7 +151,7 @@ def show_details(
         st.markdown("**Why this forecast**")
         st.markdown(reasons_text(explanation))
         st.altair_chart(explanation_chart(explanation, theme), width="stretch")
-        st.caption(EXPLANATION_NOTE)
+        st.caption(f"{EXPLANATION_NOTE} {EXPLANATION_CHART_NOTE}")
 
     st.markdown("**Weather forecast**")
     row = metric_row()

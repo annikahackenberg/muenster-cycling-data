@@ -1,10 +1,10 @@
 {
-  "checked_on": "2026-11-17",
+  "checked_on": "2026-11-18",
   "warnings": [
     "Grevener Stra\u00dfe: far below its usual count since 2026-11-13, compared with other sites, maybe a partial outage."
   ],
   "actions": [
-    "Check it on the explore page; add a real outage to SITE_FAULTS in sites.py. If it needs nothing done, add (\"low_counts\", \"300039331\", \"2026-11-17\", \"<result>\") to CHECKED_WARNINGS in monitoring.py."
+    "Check it on the explore page; add a real outage to SITE_FAULTS in sites.py. If it needs nothing done, add (\"low_counts\", \"300039331\", \"2026-11-18\", \"<result>\") to CHECKED_WARNINGS in monitoring.py."
   ],
   "checked_warnings": []
 }

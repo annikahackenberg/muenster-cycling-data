@@ -15,7 +15,7 @@ from holidays import Germany
 
 from radmuenster.data import DEFAULT_SITE
 from radmuenster.explain import GROUP_LABELS, group_factors
-from radmuenster.explore import PALETTE
+from radmuenster.explore import PALETTE, category_axis
 from radmuenster.features import SUBDIVISION, academic_features, calendar_features, lag_features
 from radmuenster.monitoring import evaluate_forecasts, evaluate_site_forecasts
 
@@ -146,7 +146,7 @@ def explanation_chart(explanation: pd.Series, theme: str) -> alt.LayerChart:
     colors = {"base": SERIES_COLORS[theme][COUNTED], "up": palette[2], "down": palette[7],
               "forecast": SERIES_COLORS[theme][FORECAST]}
     base = alt.Chart(data).encode(
-        y=alt.Y("step:N", sort=list(data["step"]), title=None, axis=alt.Axis(labelLimit=220))
+        y=alt.Y("step:N", sort=list(data["step"]), title=None, axis=category_axis(220))
     )
     bars = base.mark_bar(height=16).encode(
         x=alt.X("start:Q", title="Trips per day", scale=alt.Scale(zero=True)),

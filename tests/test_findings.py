@@ -109,7 +109,7 @@ def make_site_counts(weather: pd.DataFrame) -> dict[str, pd.DataFrame]:
     return sites
 
 
-def test_site_findings_tell_commuter_from_leisure_routes():
+def test_site_findings_tell_commuter_from_leisure_routes(assert_all_labels_shown):
     weather = make_weather()
     profiles = site_profiles(make_site_counts(weather), weather)
     assert "300037925" not in profiles.index  # too few days
@@ -123,7 +123,7 @@ def test_site_findings_tell_commuter_from_leisure_routes():
     assert "The leisure routes keep only" in rain.text
     for finding in (weekday, rain, season):
         for theme in ("light", "dark"):
-            finding.chart(theme).to_dict()
+            assert_all_labels_shown(finding.chart(theme))
 
 
 def test_site_findings_need_commuter_routes():

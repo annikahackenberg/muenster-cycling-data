@@ -233,8 +233,9 @@ def test_forecast_explanation_is_none_without_a_matching_row():
     assert forecast_explanation(pd.DataFrame(), older, "100034983", "lightgbm") is None
 
 
-def test_explanation_chart_runs_from_the_base_to_the_forecast():
+def test_explanation_chart_runs_from_the_base_to_the_forecast(assert_all_labels_shown):
     own = make_explanations().iloc[0]
+    assert_all_labels_shown(explanation_chart(own, "light"))
     data = explanation_chart(own, "light").data
     # this_site is NaN for the own model and left out
     assert data["step"].tolist() == [

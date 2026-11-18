@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 
 from radmuenster.dashboard import SERIES_COLORS
+from radmuenster.explore import category_axis
 from radmuenster.features import PERIOD_STARTS, SPECIAL_DAYS, calendar_features
 from radmuenster.sites import SITES_BY_ID
 
@@ -430,7 +431,7 @@ def site_bar_chart(profiles: pd.DataFrame, value: str, title: str, theme: str) -
         alt.Chart(data)
         .mark_bar(color=color, cornerRadiusTopRight=4, cornerRadiusBottomRight=4)
         .encode(
-            y=alt.Y("site_name:N", sort="-x", title=None, axis=alt.Axis(labelLimit=260)),
+            y=alt.Y("site_name:N", sort="-x", title=None, axis=category_axis(260)),
             x=alt.X(f"{value}:Q", title=title, scale=alt.Scale(zero=True)),
             tooltip=[alt.Tooltip("site_name:N", title="Site"), alt.Tooltip(f"{value}:Q", title=title, format=".2f")],
         )
@@ -452,7 +453,7 @@ def site_rain_chart(profiles: pd.DataFrame, theme: str) -> alt.LayerChart:
         alt.Chart(data)
         .mark_bar(cornerRadiusTopRight=3, cornerRadiusBottomRight=3)
         .encode(
-            y=alt.Y("site_name:N", sort=order, title=None, axis=alt.Axis(labelLimit=260)),
+            y=alt.Y("site_name:N", sort=order, title=None, axis=category_axis(260)),
             yOffset=alt.YOffset("day_type:N", sort=[WORKDAY, WEEKEND]),
             x=alt.X("factor:Q", title="8+ h of rain vs. typical day", scale=alt.Scale(zero=True)),
             color=alt.Color(

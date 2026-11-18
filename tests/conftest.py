@@ -28,3 +28,30 @@ class FakeAudioClient:
 def audio_client():
     """FakeAudioClient, to be called with the transcript."""
     return FakeAudioClient
+
+
+def _category_axes(spec):
+    """The axis of every nominal y encoding in an Altair spec (as dict)."""
+    if isinstance(spec, dict):
+        y = spec.get("encoding", {}).get("y", {})
+        if y.get("type") == "nominal":
+            yield y.get("axis", {})
+        for value in spec.values():
+            yield from _category_axes(value)
+    elif isinstance(spec, list):
+        for value in spec:
+            yield from _category_axes(value)
+
+
+@pytest.fixture
+def assert_all_labels_shown():
+    """Checks that a horizontal bar chart keeps every label in Streamlit
+    (see explore.category_axis): called with the chart."""
+
+    def check(chart):
+        axes = list(_category_axes(chart.to_dict()))
+        assert axes
+        for axis in axes:
+            assert axis.get("labelOverlap") is False and axis.get("labelFlush") is False
+
+    return check

@@ -223,7 +223,11 @@ counts on a leisure route on days of heavy rain) goes into `CHECKED_WARNINGS` in
 [monitoring.py](src/radmuenster/monitoring.py), with the check, the site, the day of the check and the
 result. The entry covers all days up to the day of the check: the pages show the warning as checked, with
 the result, and it opens no issue. The check keeps judging the days after it, so a new problem at the same
-site warns again. This works for all checks that judge days (incomplete days, inbound share, bias, low
+site warns again. For a cause that lasts and is known to end, an entry can cover the days up to a later day:
+the Grevener Straße has counted a third to half of its usual trips since 13 November 2026, probably because
+building works send the bike path around the counter until the end of November. The forecast is for the
+count, so such a detour stays in the data and the model follows it; only counters that miss trips go into
+`SITE_FAULTS` (below). This works for all checks that judge days (incomplete days, inbound share, bias, low
 counts); missing data and failed downloads need a fix instead.
 
 Outages go into `KNOWN_FAULTS` and `SITE_FAULTS` after the fact, each with the day it was marked. Until

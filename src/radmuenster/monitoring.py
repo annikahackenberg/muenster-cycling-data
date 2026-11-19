@@ -25,9 +25,9 @@ visitors and, separately, what to do about it; only the issue of the daily
 job shows the second.
 
 A warning that was checked by hand and needs nothing done goes into
-CHECKED_WARNINGS. The check then only judges the days after the check: the
-pages show the result of the check instead of the warning, and a problem on
-later days warns again.
+CHECKED_WARNINGS. The check then only judges the days after the check (or
+after the day the entry covers up to): the pages show the result of the
+check instead of the warning, and a problem on later days warns again.
 """
 
 from __future__ import annotations
@@ -81,12 +81,28 @@ MAX_SITE_BIAS = 0.15
 LOW_COUNT_RECENT_DAYS = 7
 
 # Warnings checked by hand that need nothing done: (check, site id, day of the
-# check, result). The entry covers all days up to the day of the check; the
-# check then only judges later days (the latest entry of a check and site
-# counts). Checks: incomplete_days, inbound_share and bias (Warendorfer
-# Straße, DEFAULT_SITE), site_bias and low_counts (any site). Missing counts
-# and failed downloads cannot be checked away: they need a fix, or pass.
-CHECKED_WARNINGS: list[tuple[str, str, str, str]] = []
+# check, covers up to, result). The entry covers all days up to the day of the
+# check, or up to the day in "covers up to" if that is not None: for a cause
+# that lasts and is known to end, like building works. The check then only
+# judges later days (the latest entry of a check and site counts). Checks:
+# incomplete_days, inbound_share and bias (Warendorfer Straße, DEFAULT_SITE),
+# site_bias and low_counts (any site). Missing counts and failed downloads
+# cannot be checked away: they need a fix, or pass.
+CheckedWarning = tuple[str, str, str, str | None, str]
+CHECKED_WARNINGS: list[CheckedWarning] = [
+    # Both directions a third to half of the usual count from one night to the
+    # next (13 November 2026), while the other sites stayed normal. The
+    # Stadtnetze work on the Grevener Straße until the end of November and lead
+    # the bike path onto the road at times. The forecast is for the count, so a
+    # detour stays in the data and the model follows it.
+    (
+        "low_counts",
+        "300039331",
+        "2026-11-19",
+        "2026-11-30",
+        "probably a detour around building works until the end of November, the counts are real",
+    ),
+]
 CHECKS = {"incomplete_days", "inbound_share", "bias", "site_bias", "low_counts"}
 
 
@@ -106,10 +122,15 @@ class MonitoringWarning:
 
 
 def _latest_check(
-    check: str, site_id: str, checked: list[tuple[str, str, str, str]]
-) -> tuple[pd.Timestamp, str] | None:
-    """The latest entry of checked for this check and site: (day of the check, result)."""
-    entries = [(pd.Timestamp(day), note) for c, s, day, note in checked if (c, s) == (check, site_id)]
+    check: str, site_id: str, checked: list[CheckedWarning]
+) -> tuple[pd.Timestamp, pd.Timestamp | None, str] | None:
+    """The latest entry of checked for this check and site: (day of the
+    check, covers up to or None, result)."""
+    entries = [
+        (pd.Timestamp(day), None if until is None else pd.Timestamp(until), note)
+        for c, s, day, until, note in checked
+        if (c, s) == (check, site_id)
+    ]
     return max(entries, key=lambda entry: entry[0], default=None)
 
 
@@ -118,7 +139,7 @@ def _review(
     site_id: str,
     find: Callable[[pd.Timestamp | None], MonitoringWarning | None],
     today: date,
-    checked: list[tuple[str, str, str, str]],
+    checked: list[CheckedWarning],
 ) -> MonitoringWarning | None:
     """The warning of a check, taking the checks by hand into account.
 
@@ -132,18 +153,23 @@ def _review(
     if entry is None:
         later = warning
     else:
-        checked_on, note = entry
-        later = find(checked_on)
+        checked_on, until, note = entry
+        later = find(checked_on if until is None else until)
         if later is None:
+            covers = "" if until is None else f" (covering the days up to {until:%Y-%m-%d})"
             return replace(
-                warning, text=f"{warning.text} Checked on {checked_on:%Y-%m-%d}: {note}.", action="", checked=True
+                warning,
+                text=f"{warning.text} Checked on {checked_on:%Y-%m-%d}{covers}: {note}.",
+                action="",
+                checked=True,
             )
     if later is None:
         return None
     return replace(
         later,
         action=f"{later.action} If it needs nothing done, add "
-        f'("{check}", "{site_id}", "{today:%Y-%m-%d}", "<result>") to CHECKED_WARNINGS in monitoring.py.',
+        f'("{check}", "{site_id}", "{today:%Y-%m-%d}", None, "<result>") to CHECKED_WARNINGS in monitoring.py '
+        "(None: up to today, or the day a known cause ends).",
     )
 
 
@@ -172,7 +198,7 @@ def check_freshness(daily: pd.DataFrame, today: date) -> MonitoringWarning | Non
 
 
 def check_incomplete_days(
-    daily: pd.DataFrame, today: date, checked: list[tuple[str, str, str, str]] = CHECKED_WARNINGS
+    daily: pd.DataFrame, today: date, checked: list[CheckedWarning] = CHECKED_WARNINGS
 ) -> MonitoringWarning | None:
     """Warn if many of the last RECENT_DAYS days are incomplete.
 
@@ -196,7 +222,7 @@ def check_incomplete_days(
 
 
 def check_inbound_share(
-    daily: pd.DataFrame, today: date, checked: list[tuple[str, str, str, str]] = CHECKED_WARNINGS
+    daily: pd.DataFrame, today: date, checked: list[CheckedWarning] = CHECKED_WARNINGS
 ) -> MonitoringWarning | None:
     """Warn if the inbound share of the last SHARE_WINDOW_DAYS days differs
     from the REFERENCE_DAYS before by more than MAX_SHARE_DEVIATION.
@@ -267,7 +293,7 @@ def check_bias(
     log: pd.DataFrame,
     daily: pd.DataFrame,
     today: date,
-    checked: list[tuple[str, str, str, str]] = CHECKED_WARNINGS,
+    checked: list[CheckedWarning] = CHECKED_WARNINGS,
 ) -> MonitoringWarning | None:
     """Warn if the forecasts of the last BIAS_WINDOW_DAYS are on average more
     than MAX_BIAS too high or too low (at least MIN_EVALUATED_DAYS forecasts),
@@ -314,7 +340,7 @@ def check_site_bias(
     log: pd.DataFrame,
     counts: dict[str, pd.DataFrame],
     today: date,
-    checked: list[tuple[str, str, str, str]] = CHECKED_WARNINGS,
+    checked: list[CheckedWarning] = CHECKED_WARNINGS,
 ) -> list[MonitoringWarning]:
     """Warn about each site whose forecasts of the last BIAS_WINDOW_DAYS were
     on average more than MAX_SITE_BIAS too high or too low (at least
@@ -352,7 +378,7 @@ def check_site_bias(
 
 
 def check_low_counts(
-    sites_daily: pd.DataFrame, today: date, checked: list[tuple[str, str, str, str]] = CHECKED_WARNINGS
+    sites_daily: pd.DataFrame, today: date, checked: list[CheckedWarning] = CHECKED_WARNINGS
 ) -> list[MonitoringWarning]:
     """Warn about sites far below their usual count compared with the other
     sites in the last days (low_count_days): maybe a partial outage. One

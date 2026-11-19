@@ -191,6 +191,14 @@ def test_get_forecast_puts_the_number_into_context(data):
     assert result["calendar"] == ["regular day"]
 
 
+def test_get_forecast_is_paused_only_after_the_run_that_was_due(data):
+    # The day after the forecast date: paused, unless the run of the evening
+    # before may still come (after midnight, before LATE_RUN_UNTIL)
+    next_day = replace(data, today=date(2026, 10, 15))
+    assert get_forecast(next_day)["paused"]
+    assert not get_forecast(replace(next_day, run_date=date(2026, 10, 14)))["paused"]
+
+
 def test_get_forecast_at_another_site_comes_from_the_global_model(data):
     result = get_forecast(data, "neutor")
     assert (result["site"], result["predicted_trips"], result["typical_same_weekday"]) == ("Neutor", 8800, 8000)

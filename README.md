@@ -214,9 +214,10 @@ than a change in traffic, so these days are now marked as a known fault.
 
 A GitHub Actions workflow ([.github/workflows/daily-forecast.yml](.github/workflows/daily-forecast.yml))
 runs every day at 15:17 UTC (GitHub often starts it hours late), commits the forecast to `main` and opens an issue labelled `monitoring`
-when there are warnings. A run that starts after midnight in Münster but before 5:00 still makes the evening's
-forecast, for the day that has just begun: the city publishes the day before only at about 5:17, so such a run
-has no more counts than the evening had.
+when there are warnings. A scheduled run that starts after midnight in Münster but before 7:00 still makes the
+evening's forecast, for the day that has just begun: the city publishes the day before only at about 5:17, so
+such a run has no more counts than the evening had, and the next evening's run forecasts the day after. The
+logs keep the real start of each run (`made_at`, UTC), and the pages only call the forecast paused after 7:00.
 
 The warnings are public: the web page, the app and the AI assistant show them. So each warning has a text
 for visitors and, separately, what to do about it (`actions` in `status.json`), which only the issue shows,

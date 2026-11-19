@@ -30,7 +30,7 @@ from radmuenster.dashboard import (
 )
 from radmuenster.data import DEFAULT_SITE, load_intervals, to_daily
 from radmuenster.explain import reasons_text
-from radmuenster.forecast import GLOBAL_MODEL_NAME, MODEL_NAME, today_in_muenster
+from radmuenster.forecast import GLOBAL_MODEL_NAME, MODEL_NAME, run_day, today_in_muenster
 from radmuenster.multi_site import site_counts_by_id
 from radmuenster.published import (
     read_backtest,
@@ -219,7 +219,8 @@ st.write(
 )
 
 log = load_forecast_log()
-if is_stale(latest_forecast(log), today):
+# Not before LATE_RUN_UNTIL: the run of last evening may still come, hours late
+if is_stale(latest_forecast(log), run_day()):
     st.info(
         f"The daily forecast is paused. The latest forecast is from "
         f"{latest_forecast(log)['made_on']:%d %B %Y}."

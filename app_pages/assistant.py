@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from dataclasses import replace
 from datetime import date
 
 import anthropic
@@ -29,7 +30,7 @@ from radmuenster.assistant import (
     question_problem,
 )
 from radmuenster.assistant_tools import AssistantData, read_assistant_data
-from radmuenster.forecast import today_in_muenster
+from radmuenster.forecast import run_day, today_in_muenster
 from radmuenster.voice import AudioError, check_recording, speak, transcribe
 
 # The cached data is reloaded at most once an hour
@@ -221,7 +222,8 @@ if key is None:
     st.stop()
 
 today = today_in_muenster()
-data = load_data(today)
+# Cached per day; the day of the daily run changes at LATE_RUN_UNTIL, not at midnight
+data = replace(load_data(today), run_date=run_day())
 client = get_client(key)
 limit = daily_limit()
 # Without an OpenAI key (or the openai package) the assistant only takes

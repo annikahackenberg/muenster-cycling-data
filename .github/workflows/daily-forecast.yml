@@ -4,7 +4,7 @@ on:
   schedule:
     # Cron runs on UTC: 15:17 UTC is 17:17 in summer and 16:17 in winter in
     # Münster. Scheduled runs start late when GitHub is busy, in November 2026
-    # often 4-8 hours. A run after midnight in Münster but before 5:00 still
+    # often 4-8 hours. A run after midnight in Münster but before 7:00 still
     # forecasts the day that has just begun (LATE_RUN_UNTIL in forecast.py);
     # a run after that forecasts the next day, and the evening's forecast is
     # missing. Not on the full hour, where most scheduled workflows start. The

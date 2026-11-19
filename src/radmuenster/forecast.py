@@ -12,7 +12,8 @@ out of date.
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime
+import os
+from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -47,6 +48,15 @@ from radmuenster.weather import DAILY_VARIABLES, load_weather, load_weather_fore
 # German time.
 TIMEZONE = ZoneInfo("Europe/Berlin")
 
+# GitHub starts the scheduled daily job up to 8 hours late, at times after
+# midnight in Münster. Such a run still makes the evening's forecast, for the
+# day that has just begun. The city publishes yesterday's counts at about
+# 5:17 (some days later); until it has, a run has no more counts than the
+# evening had, and a forecast for the next day would lack them. The next
+# scheduled run makes the next day's forecast anyway. made_at in the logs
+# keeps the real start of each run.
+LATE_RUN_UNTIL = time(7, 0)
+
 # Unlike data/, this file is part of the repository: it is the forecast
 # history the monitoring and the web page read.
 FORECAST_FILE = Path("forecasts/forecasts.csv")
@@ -75,6 +85,19 @@ def today_in_muenster(now: datetime | None = None) -> date:
     """Today's date in Münster. now must carry a time zone; default: now."""
     now = now or datetime.now(TIMEZONE)
     return now.astimezone(TIMEZONE).date()
+
+
+def run_day(now: datetime | None = None, scheduled: bool = True) -> date:
+    """The day a scheduled daily run is for: today in Münster, or yesterday
+    for a run that started late, after midnight but before LATE_RUN_UNTIL.
+    The forecast is for the day after. A run started by hand (scheduled
+    False) is always for today: at night it must not replace the forecast
+    published the evening before. now must carry a time zone; default: now."""
+    now = now or datetime.now(TIMEZONE)
+    today = today_in_muenster(now)
+    if scheduled and now.astimezone(TIMEZONE).time() < LATE_RUN_UNTIL:
+        return today - timedelta(days=1)
+    return today
 
 
 def combine_weather(archive: pd.DataFrame, forecast: pd.DataFrame) -> pd.DataFrame:
@@ -274,17 +297,23 @@ def _read_backtest(path: Path = BACKTEST_FILE) -> tuple[pd.DataFrame | None, pd.
 
 
 def main() -> None:
-    today = today_in_muenster()
-    target = today + pd.Timedelta(days=1)
-    daily = to_daily(load_intervals(DEFAULT_SITE, end=today))
-    weather = combine_weather(load_weather(end=today), load_weather_forecast())
-    record, explanation = forecast_day(daily, weather, target, made_on=today)
+    now = datetime.now(TIMEZONE)
+    # The day this run is for, which is yesterday for a late scheduled run
+    run_date = run_day(now, scheduled=os.environ.get("GITHUB_EVENT_NAME") == "schedule")
+    target = run_date + timedelta(days=1)
+    if run_date != today_in_muenster(now):
+        print(f"Late run after midnight: forecast for {target:%Y-%m-%d}, as planned the evening before")
+    made_at = now.astimezone(UTC).strftime("%Y-%m-%dT%H:%MZ")
+    daily = to_daily(load_intervals(DEFAULT_SITE, end=run_date))
+    weather = combine_weather(load_weather(end=run_date), load_weather_forecast())
+    record, explanation = forecast_day(daily, weather, target, made_on=run_date)
+    record["made_at"] = made_at
     log = save_forecast(record)
     if explanation is not None:
         save_forecast(explanation, EXPLANATION_FILE, key=FORECAST_KEY)
-    sites_daily, failed_sites = load_all_sites(end=today)
+    sites_daily, failed_sites = load_all_sites(end=run_date)
     # The error message is only for the issue, not for the public pages
-    warnings = run_checks(daily, log, today, sites_daily) + [
+    warnings = run_checks(daily, log, run_date, sites_daily) + [
         MonitoringWarning(
             f"Counting site {name} could not be loaded today: it is missing from the explore page, "
             "the insights and the forecasts.",
@@ -295,12 +324,13 @@ def main() -> None:
     counts = site_counts_by_id(sites_daily, daily)
     # The forecast of the Warendorfer Straße above must not depend on this one
     try:
-        sites_record, sites_explanation = forecast_sites(counts, weather, target, made_on=today)
+        sites_record, sites_explanation = forecast_sites(counts, weather, target, made_on=run_date)
+        sites_record["made_at"] = made_at
         sites_log = save_forecast(sites_record, SITES_FORECAST_FILE, key=FORECAST_KEY)
         if sites_explanation is not None:
             save_forecast(sites_explanation, EXPLANATION_FILE, key=FORECAST_KEY)
-        warnings += check_site_bias(sites_log, counts, today)
-        overview = sites_overview(sites_log, log, counts, today, *_read_backtest())
+        warnings += check_site_bias(sites_log, counts, run_date)
+        overview = sites_overview(sites_log, log, counts, run_date, *_read_backtest())
     # Deliberately broad, like a broken site in load_all_sites
     except Exception as error:
         # Not None: this failure has its own warning, not the one for explanations
@@ -319,9 +349,9 @@ def main() -> None:
             )
         )
     warnings = [warning for warning in warnings if warning is not None]
-    write_status(warnings, today)
+    write_status(warnings, run_date)
     own_explanation = None if explanation is None else explanation.iloc[0]
-    page = write_site(render_page(daily, log, warnings, today, weather, overview, counts, own_explanation))
+    page = write_site(render_page(daily, log, warnings, run_date, weather, overview, counts, own_explanation))
     sites_data = write_data(sites_daily, SITES_DATA)
     write_data(daily, DAILY_DATA)
     write_data(weather, WEATHER_DATA)

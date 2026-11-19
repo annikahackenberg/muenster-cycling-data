@@ -99,6 +99,9 @@ class AssistantData:
     sites_log    the forecasts of all sites (SITES_FORECAST_FILE)
     backtest     the backtest of all sites (BACKTEST_FILE)
     explanations the SHAP explanations of the forecasts (EXPLANATION_FILE)
+    run_date     the day of the latest scheduled daily run (forecast.run_day),
+                 which is yesterday after midnight until a late run is due;
+                 None: today. Only a forecast before it means paused.
     """
 
     sites_daily: pd.DataFrame
@@ -111,6 +114,7 @@ class AssistantData:
     sites_log: pd.DataFrame = field(default_factory=lambda: pd.DataFrame(columns=_LOG_COLUMNS))
     backtest: pd.DataFrame = field(default_factory=lambda: pd.DataFrame(columns=_LOG_COLUMNS))
     explanations: pd.DataFrame = field(default_factory=pd.DataFrame)
+    run_date: date | None = None
 
 
 def read_assistant_data(today: date) -> AssistantData:
@@ -270,7 +274,7 @@ def get_forecast(data: AssistantData, site: str = FORECAST_SITE) -> dict:
         "weekday": f"{forecast['forecast_date']:%A}",
         "predicted_trips": _number(forecast["prediction"]),
         "made_on": f"{forecast['made_on']:%Y-%m-%d}",
-        "paused": is_stale(forecast, data.today),
+        "paused": is_stale(forecast, data.run_date or data.today),
         "same_weekday_last_week": _number(context["last_week"]),
         "typical_same_weekday": _number(context["typical"]),
         "weather_forecast": {

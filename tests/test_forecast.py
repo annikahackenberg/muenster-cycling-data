@@ -12,6 +12,7 @@ from radmuenster.forecast import (
     forecast_day,
     forecast_sites,
     read_forecasts,
+    run_day,
     save_forecast,
     today_in_muenster,
 )
@@ -23,6 +24,36 @@ def test_today_in_muenster_is_ahead_of_utc_around_midnight():
     assert today_in_muenster(datetime(2026, 10, 12, 23, 30, tzinfo=timezone.utc)) == date(
         2026, 10, 13
     )
+
+
+def at(*args) -> datetime:
+    return datetime(*args, tzinfo=timezone.utc)
+
+
+def test_run_day_keeps_a_late_run_on_the_evening_before():
+    # Winter: 22:52 UTC on 17 November is 23:52 in Münster, still the 17th
+    assert run_day(at(2026, 11, 17, 22, 52)) == date(2026, 11, 17)
+    # 23:44 UTC on 16 November is 00:44 on the 17th: a late run of the 16th
+    assert run_day(at(2026, 11, 16, 23, 44)) == date(2026, 11, 16)
+    # Summer: 04:59 UTC on 13 October is 06:59 in Münster, still a run of the 12th ...
+    assert run_day(at(2026, 10, 13, 4, 59)) == date(2026, 10, 12)
+    # ... from 07:00 on (LATE_RUN_UNTIL), a run of the 13th
+    assert run_day(at(2026, 10, 13, 5, 0)) == date(2026, 10, 13)
+    assert run_day(at(2026, 11, 18, 15, 17)) == date(2026, 11, 18)
+
+
+def test_run_day_follows_the_clock_in_muenster_on_the_nights_it_changes():
+    # 25 October 2026: back to winter time at 03:00, so 07:00 is 06:00 UTC
+    assert run_day(at(2026, 10, 25, 5, 59)) == date(2026, 10, 24)
+    assert run_day(at(2026, 10, 25, 6, 0)) == date(2026, 10, 25)
+    # 28 March 2027: on to summer time at 02:00, so 07:00 is 05:00 UTC
+    assert run_day(at(2027, 3, 28, 4, 59)) == date(2027, 3, 27)
+    assert run_day(at(2027, 3, 28, 5, 0)) == date(2027, 3, 28)
+
+
+def test_run_day_of_a_run_by_hand_is_today():
+    # At night a run by hand must not replace the forecast of the evening before
+    assert run_day(at(2026, 11, 16, 23, 44), scheduled=False) == date(2026, 11, 17)
 
 
 def make_weather(start: str, end: str, value: float = 1.0) -> pd.DataFrame:

@@ -13,6 +13,7 @@ from radmuenster.forecast import (
     forecast_sites,
     read_forecasts,
     save_forecast,
+    run_day,
     today_in_muenster,
 )
 from radmuenster.weather import DAILY_VARIABLES
@@ -23,6 +24,19 @@ def test_today_in_muenster_is_ahead_of_utc_around_midnight():
     assert today_in_muenster(datetime(2026, 10, 12, 23, 30, tzinfo=timezone.utc)) == date(
         2026, 10, 13
     )
+
+
+def test_run_day_keeps_a_late_run_on_the_evening_before():
+    utc = timezone.utc
+    # Winter: 22:52 UTC on 17 November is 23:52 in Münster, still the 17th
+    assert run_day(datetime(2026, 11, 17, 22, 52, tzinfo=utc)) == date(2026, 11, 17)
+    # 23:44 UTC on 16 November is 00:44 on the 17th: a late run of the 16th
+    assert run_day(datetime(2026, 11, 16, 23, 44, tzinfo=utc)) == date(2026, 11, 16)
+    # Summer: 02:59 UTC on 13 October is 04:59 in Münster, still the 12th ...
+    assert run_day(datetime(2026, 10, 13, 2, 59, tzinfo=utc)) == date(2026, 10, 12)
+    # ... from 05:00 on, the city may have published the 12th: a run of the 13th
+    assert run_day(datetime(2026, 10, 13, 3, 0, tzinfo=utc)) == date(2026, 10, 13)
+    assert run_day(datetime(2026, 11, 18, 15, 17, tzinfo=utc)) == date(2026, 11, 18)
 
 
 def make_weather(start: str, end: str, value: float = 1.0) -> pd.DataFrame:

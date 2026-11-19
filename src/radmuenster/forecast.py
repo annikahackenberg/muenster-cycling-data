@@ -12,7 +12,7 @@ out of date.
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -47,6 +47,13 @@ from radmuenster.weather import DAILY_VARIABLES, load_weather, load_weather_fore
 # German time.
 TIMEZONE = ZoneInfo("Europe/Berlin")
 
+# GitHub starts the scheduled daily job up to 8 hours late, at times after
+# midnight in Münster. Such a run still makes the evening's forecast, for the
+# day that has just begun: the city publishes yesterday's counts only at
+# about 5:17, so a run before that has no more data than the evening had.
+# A later run makes the next day's forecast, as usual.
+LATE_RUN_UNTIL = time(5, 0)
+
 # Unlike data/, this file is part of the repository: it is the forecast
 # history the monitoring and the web page read.
 FORECAST_FILE = Path("forecasts/forecasts.csv")
@@ -75,6 +82,16 @@ def today_in_muenster(now: datetime | None = None) -> date:
     """Today's date in Münster. now must carry a time zone; default: now."""
     now = now or datetime.now(TIMEZONE)
     return now.astimezone(TIMEZONE).date()
+
+
+def run_day(now: datetime | None = None) -> date:
+    """The day the daily job runs for: today in Münster, or yesterday for a
+    run that started late, after midnight but before LATE_RUN_UNTIL. The
+    forecast is for the day after. now must carry a time zone; default: now."""
+    now = (now or datetime.now(TIMEZONE)).astimezone(TIMEZONE)
+    if now.time() < LATE_RUN_UNTIL:
+        return now.date() - timedelta(days=1)
+    return now.date()
 
 
 def combine_weather(archive: pd.DataFrame, forecast: pd.DataFrame) -> pd.DataFrame:
@@ -274,7 +291,9 @@ def _read_backtest(path: Path = BACKTEST_FILE) -> tuple[pd.DataFrame | None, pd.
 
 
 def main() -> None:
-    today = today_in_muenster()
+    today = run_day()
+    if today != today_in_muenster():
+        print(f"Late run after midnight: forecast for {today + timedelta(days=1):%Y-%m-%d}, as planned")
     target = today + pd.Timedelta(days=1)
     daily = to_daily(load_intervals(DEFAULT_SITE, end=today))
     weather = combine_weather(load_weather(end=today), load_weather_forecast())

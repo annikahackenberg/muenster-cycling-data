@@ -19,6 +19,16 @@ PALETTE = {
 }
 MAX_SITES = len(PALETTE["light"])
 
+
+def category_axis(label_limit: int) -> alt.Axis:
+    """The axis of a horizontal bar chart, with one label per bar.
+
+    Streamlit's theme sets labelFlush and labelOverlap for all axes: the first
+    and last label move inwards, touch their neighbours, and then every other
+    label is hidden. Here each bar needs its label, so both are switched off.
+    """
+    return alt.Axis(labelLimit=label_limit, labelOverlap=False, labelFlush=False)
+
 # Pandas period of each resolution; "W" weeks run from Monday to Sunday
 RESOLUTIONS = {"Day": "D", "Week": "W", "Month": "M"}
 
@@ -212,7 +222,7 @@ def ranking_chart(table: pd.DataFrame, theme: str) -> alt.Chart:
         alt.Chart(table)
         .mark_bar(cornerRadiusTopRight=4, cornerRadiusBottomRight=4)
         .encode(
-            y=alt.Y("label:N", sort="-x", title=None, axis=alt.Axis(labelLimit=260)),
+            y=alt.Y("label:N", sort="-x", title=None, axis=category_axis(260)),
             x=alt.X("trips:Q", title="Trips per day"),
             color=alt.condition(alt.datum.reliable, alt.value(color), alt.value("#9a9a96")),
             tooltip=[

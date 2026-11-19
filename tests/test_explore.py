@@ -11,6 +11,7 @@ from radmuenster.explore import (
     day_reasons,
     flagged_periods,
     ranking,
+    ranking_chart,
     select,
 )
 
@@ -89,7 +90,7 @@ def test_aggregate_days_shows_gaps_for_left_out_days():
     assert days["trips"].iloc[0] == 100.0 and np.isnan(days["trips"].iloc[1])
 
 
-def test_ranking_uses_days_without_flags_and_reports_coverage():
+def test_ranking_uses_days_without_flags_and_reports_coverage(assert_all_labels_shown):
     table = make_sites_daily({"Busy": [1000.0] * 10, "Quiet": [100.0] * 10, "Late": [500.0] * 2})
     flag(table, "Busy", "2026-01-05", "2026-01-06", "dead_channel")
     result = ranking(table, date(2026, 1, 5), date(2026, 1, 14)).set_index("site_name")
@@ -97,6 +98,7 @@ def test_ranking_uses_days_without_flags_and_reports_coverage():
     assert result.loc["Busy", "ok_days"] == 8
     assert result.loc["Late", "coverage"] == pytest.approx(0.2)
     assert not result.loc["Late", "reliable"] and result.loc["Quiet", "reliable"]
+    assert_all_labels_shown(ranking_chart(result.reset_index(), "light"))
 
 
 def test_flagged_periods_skip_month_ends_and_join_outages():

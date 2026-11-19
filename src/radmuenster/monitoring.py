@@ -25,9 +25,9 @@ visitors and, separately, what to do about it; only the issue of the daily
 job shows the second.
 
 A warning that was checked by hand and needs nothing done goes into
-CHECKED_WARNINGS. The check then only judges the days after the check: the
-pages show the result of the check instead of the warning, and a problem on
-later days warns again.
+CHECKED_WARNINGS. The check then only judges the days after the check (or
+after the day the entry covers up to): the pages show the result of the
+check instead of the warning, and a problem on later days warns again.
 """
 
 from __future__ import annotations
@@ -37,6 +37,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import date
 from pathlib import Path
+from typing import NamedTuple
 
 import numpy as np
 import pandas as pd
@@ -80,13 +81,37 @@ MAX_SITE_BIAS = 0.15
 # the same run
 LOW_COUNT_RECENT_DAYS = 7
 
-# Warnings checked by hand that need nothing done: (check, site id, day of the
-# check, result). The entry covers all days up to the day of the check; the
-# check then only judges later days (the latest entry of a check and site
-# counts). Checks: incomplete_days, inbound_share and bias (Warendorfer
-# Straße, DEFAULT_SITE), site_bias and low_counts (any site). Missing counts
-# and failed downloads cannot be checked away: they need a fix, or pass.
-CHECKED_WARNINGS: list[tuple[str, str, str, str]] = []
+class CheckedWarning(NamedTuple):
+    """A warning checked by hand that needs nothing done.
+
+    The entry covers all days up to the day of the check, or up to
+    covers_until if that is later: for a cause that lasts and is known to
+    end, like building works. The check then only judges later days.
+    """
+
+    check: str
+    site_id: str
+    checked_on: str
+    note: str
+    covers_until: str | None = None
+
+
+# Checks: incomplete_days, inbound_share and bias (Warendorfer Straße,
+# DEFAULT_SITE), site_bias and low_counts (any site). Missing counts and failed
+# downloads cannot be checked away: they need a fix, or pass. Entries of the
+# same check and site add up: the note of the latest one is shown, and they
+# cover up to the latest day any of them covers.
+_DETOUR = "probably a detour around the counter during building works; the counter itself is taken to work"
+CHECKED_WARNINGS: list[CheckedWarning] = [
+    # Both directions a third to half of the usual count from one night to the
+    # next (13 November 2026), while the other sites stayed normal. The
+    # Stadtnetze work on the Grevener Straße until the end of November and lead
+    # the bike path onto the road at times. The forecast is for the count, so a
+    # detour stays in the data and the model follows it, with a lag: forecasts
+    # are too high at first, and too low for about two weeks after the end.
+    CheckedWarning("low_counts", "300039331", "2026-11-19", _DETOUR, covers_until="2026-11-30"),
+    CheckedWarning("site_bias", "300039331", "2026-11-19", _DETOUR, covers_until="2026-12-14"),
+]
 CHECKS = {"incomplete_days", "inbound_share", "bias", "site_bias", "low_counts"}
 
 
@@ -106,11 +131,19 @@ class MonitoringWarning:
 
 
 def _latest_check(
-    check: str, site_id: str, checked: list[tuple[str, str, str, str]]
-) -> tuple[pd.Timestamp, str] | None:
-    """The latest entry of checked for this check and site: (day of the check, result)."""
-    entries = [(pd.Timestamp(day), note) for c, s, day, note in checked if (c, s) == (check, site_id)]
-    return max(entries, key=lambda entry: entry[0], default=None)
+    check: str, site_id: str, checked: list[CheckedWarning]
+) -> tuple[pd.Timestamp, pd.Timestamp, str] | None:
+    """The entries of checked for this check and site, taken together: (day
+    of the latest check, the latest day any entry covers, its result)."""
+    entries = [CheckedWarning(*entry) for entry in checked if tuple(entry[:2]) == (check, site_id)]
+    if not entries:
+        return None
+    latest = max(entries, key=lambda entry: pd.Timestamp(entry.checked_on))
+    covered = max(
+        max(pd.Timestamp(entry.checked_on), pd.Timestamp(entry.covers_until or entry.checked_on))
+        for entry in entries
+    )
+    return pd.Timestamp(latest.checked_on), covered, latest.note
 
 
 def _review(
@@ -118,7 +151,7 @@ def _review(
     site_id: str,
     find: Callable[[pd.Timestamp | None], MonitoringWarning | None],
     today: date,
-    checked: list[tuple[str, str, str, str]],
+    checked: list[CheckedWarning],
 ) -> MonitoringWarning | None:
     """The warning of a check, taking the checks by hand into account.
 
@@ -132,18 +165,23 @@ def _review(
     if entry is None:
         later = warning
     else:
-        checked_on, note = entry
-        later = find(checked_on)
+        checked_on, covered, note = entry
+        later = find(covered)
         if later is None:
+            covers = "" if covered == checked_on else f" (covering the days up to {covered:%Y-%m-%d})"
             return replace(
-                warning, text=f"{warning.text} Checked on {checked_on:%Y-%m-%d}: {note}.", action="", checked=True
+                warning,
+                text=f"{warning.text} Checked on {checked_on:%Y-%m-%d}{covers}: {note}.",
+                action="",
+                checked=True,
             )
     if later is None:
         return None
     return replace(
         later,
         action=f"{later.action} If it needs nothing done, add "
-        f'("{check}", "{site_id}", "{today:%Y-%m-%d}", "<result>") to CHECKED_WARNINGS in monitoring.py.',
+        f'CheckedWarning("{check}", "{site_id}", "{today:%Y-%m-%d}", "<result>") to CHECKED_WARNINGS in '
+        "monitoring.py (with covers_until=\"<day>\" for a known cause that lasts).",
     )
 
 
@@ -172,7 +210,7 @@ def check_freshness(daily: pd.DataFrame, today: date) -> MonitoringWarning | Non
 
 
 def check_incomplete_days(
-    daily: pd.DataFrame, today: date, checked: list[tuple[str, str, str, str]] = CHECKED_WARNINGS
+    daily: pd.DataFrame, today: date, checked: list[CheckedWarning] = CHECKED_WARNINGS
 ) -> MonitoringWarning | None:
     """Warn if many of the last RECENT_DAYS days are incomplete.
 
@@ -196,7 +234,7 @@ def check_incomplete_days(
 
 
 def check_inbound_share(
-    daily: pd.DataFrame, today: date, checked: list[tuple[str, str, str, str]] = CHECKED_WARNINGS
+    daily: pd.DataFrame, today: date, checked: list[CheckedWarning] = CHECKED_WARNINGS
 ) -> MonitoringWarning | None:
     """Warn if the inbound share of the last SHARE_WINDOW_DAYS days differs
     from the REFERENCE_DAYS before by more than MAX_SHARE_DEVIATION.
@@ -267,7 +305,7 @@ def check_bias(
     log: pd.DataFrame,
     daily: pd.DataFrame,
     today: date,
-    checked: list[tuple[str, str, str, str]] = CHECKED_WARNINGS,
+    checked: list[CheckedWarning] = CHECKED_WARNINGS,
 ) -> MonitoringWarning | None:
     """Warn if the forecasts of the last BIAS_WINDOW_DAYS are on average more
     than MAX_BIAS too high or too low (at least MIN_EVALUATED_DAYS forecasts),
@@ -314,7 +352,7 @@ def check_site_bias(
     log: pd.DataFrame,
     counts: dict[str, pd.DataFrame],
     today: date,
-    checked: list[tuple[str, str, str, str]] = CHECKED_WARNINGS,
+    checked: list[CheckedWarning] = CHECKED_WARNINGS,
 ) -> list[MonitoringWarning]:
     """Warn about each site whose forecasts of the last BIAS_WINDOW_DAYS were
     on average more than MAX_SITE_BIAS too high or too low (at least
@@ -352,7 +390,7 @@ def check_site_bias(
 
 
 def check_low_counts(
-    sites_daily: pd.DataFrame, today: date, checked: list[tuple[str, str, str, str]] = CHECKED_WARNINGS
+    sites_daily: pd.DataFrame, today: date, checked: list[CheckedWarning] = CHECKED_WARNINGS
 ) -> list[MonitoringWarning]:
     """Warn about sites far below their usual count compared with the other
     sites in the last days (low_count_days): maybe a partial outage. One
@@ -371,9 +409,11 @@ def check_low_counts(
             judged = _after(days, after)
             if judged.empty or judged.iloc[-1] < recent_start:
                 return None
-            # The start of the latest run: the first day after the last gap
-            gaps = judged.diff() > pd.Timedelta(days=LOW_COUNT_RECENT_DAYS)
-            since = judged[gaps].iloc[-1] if gaps.any() else judged.iloc[0]
+            # The start of the latest run, also before `after`, so that a run
+            # going on after a check keeps its first day: the first day after
+            # the last gap
+            gaps = days.diff() > pd.Timedelta(days=LOW_COUNT_RECENT_DAYS)
+            since = days[gaps].iloc[-1] if gaps.any() else days.iloc[0]
             return MonitoringWarning(
                 f"{name}: far below its usual count since {since:%Y-%m-%d}, compared with other "
                 "sites, maybe a partial outage.",

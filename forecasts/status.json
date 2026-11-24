@@ -1,8 +1,9 @@
 {
-  "checked_on": "2026-11-23",
+  "checked_on": "2026-11-24",
   "warnings": [],
   "actions": [],
   "checked_warnings": [
-    "Grevener Stra\u00dfe: far below its usual count since 2026-11-13, compared with other sites, maybe a partial outage. Checked on 2026-11-19 (covering the days up to 2026-11-30): probably a detour around the counter during building works; the counter itself is taken to work."
+    "Grevener Stra\u00dfe: far below its usual count since 2026-11-13, compared with other sites, maybe a partial outage. Checked on 2026-11-19 (covering the days up to 2026-11-30): probably a detour around the counter during building works; the counter itself is taken to work.",
+    "Forecasts for Grevener Stra\u00dfe were on average +40% off (14 days of the last 28): the level of the site may have shifted, or its counts are wrong. Checked on 2026-11-19 (covering the days up to 2026-12-14): probably a detour around the counter during building works; the counter itself is taken to work."
   ]
 }
